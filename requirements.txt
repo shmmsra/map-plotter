@@ -1,0 +1,6 @@
+pandas
+googlemaps
+matplotlib
+openpyxl
+folium
+xlsxwriter
