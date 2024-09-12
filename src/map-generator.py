@@ -1,9 +1,9 @@
 import os
 import pandas as pd
 import googlemaps
-import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
-import numpy as np
+import folium
+
+data_directory = os.path.join(os.path.dirname(__file__), '../data')
 
 # Function to read the Excel file with multiple worksheets
 def read_employee_data(file_path):
@@ -29,29 +29,42 @@ def find_nearest_office(gmaps, employee_lat, employee_lon, office_locations):
 
     return nearest_office, min_distance
 
-# Function to plot employees and offices on a graph
-def plot_employee_office_map(employee_data, office_locations, country):
-    fig, ax = plt.subplots()
+# Function to plot employees and offices on a Google Maps terrain view
+def plot_on_google_map(employee_data, office_locations, country):
+    # Create a folium map centered on the country's first office location
+    first_office_lat, first_office_lon = office_locations[0]
 
-    # Plot offices as colored translucent circles
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(office_locations)))
+    # Use "Stamen Terrain" with proper attribution
+    map_ = folium.Map(
+        location=[first_office_lat, first_office_lon],
+        zoom_start=5
+    )
 
-    for office, color in zip(office_locations, colors):
+    # Add office locations with colored translucent circles
+    for office in office_locations:
         office_lat, office_lon = office
-        circle = Circle((office_lon, office_lat), 0.1, color=color, alpha=0.5)
-        ax.add_patch(circle)
+        folium.Circle(
+            location=[office_lat, office_lon],
+            radius=50000,  # Radius in meters
+            color="blue",
+            fill=True,
+            fill_opacity=0.4
+        ).add_to(map_)
 
-    # Plot employee home locations
+    # Add employee home locations
     for _, row in employee_data.iterrows():
         employee_lat = row['home_latitude']
         employee_lon = row['home_longitude']
-        ax.plot(employee_lon, employee_lat, 'bo')  # Plot as blue dots
+        folium.Marker(
+            location=[employee_lat, employee_lon],
+            popup=f"Employee: {row['employee_name']}",
+            icon=folium.Icon(color="red", icon="home")
+        ).add_to(map_)
 
-    ax.set_title(f"Employee and Office Locations in {country}")
-    plt.xlabel("Longitude")
-    plt.ylabel("Latitude")
-    plt.grid(True)
-    plt.show()
+    # Save map as an HTML file
+    map_file_path = os.path.join(data_directory, f"{country}_employee_office_map.html")
+    map_.save(map_file_path)
+    print(f"Map saved as {map_file_path}")
 
 # Main function to process employee data and plot maps
 def process_employee_data(file_path, gmaps_api_key):
@@ -64,19 +77,17 @@ def process_employee_data(file_path, gmaps_api_key):
     for country, employee_data in employee_sheets.items():
         # Extract office locations from the employee data
         office_locations = list(set(zip(employee_data['office_latitude'], employee_data['office_longitude'])))
-    
+
         # For each employee, find the nearest office
         employee_data['nearest_office'] = employee_data.apply(
             lambda row: find_nearest_office(gmaps, row['home_latitude'], row['home_longitude'], office_locations),
             axis=1
         )
 
-        # Plot the data
-        plot_employee_office_map(employee_data, office_locations, country)
-
+        # Plot the data on a Google Map terrain view
+        plot_on_google_map(employee_data, office_locations, country)
 
 # Example usage:
-data_directory = os.path.join(os.path.dirname(__file__), '../data')
 if os.path.exists(data_directory):
     file_path = os.path.join(data_directory, 'sample_employee_data.xlsx')
     gmaps_api_key = 'AIzaSyBVQjWfN67G9MwBFmk3BeKHMb5Bh1CCwOw'
