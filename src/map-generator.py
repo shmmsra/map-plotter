@@ -21,6 +21,12 @@ def find_nearest_office(gmaps, employee_lat, employee_lon, office_locations):
                                                 destinations=[(office_lat, office_lon)],
                                                 mode="driving")  # Driving distance
 
+        element = distance_result['rows'][0]['elements'][0]
+        if element['status'] != 'OK':
+            continue
+        else:
+            print(f"Distance: {element['distance']['text']}, Duration: {element['duration']['text']}")
+
         distance = distance_result['rows'][0]['elements'][0]['distance']['value']  # Distance in meters
 
         if distance < min_distance:
@@ -33,8 +39,6 @@ def find_nearest_office(gmaps, employee_lat, employee_lon, office_locations):
 def plot_on_google_map(employee_data, office_locations, country):
     # Create a folium map centered on the country's first office location
     first_office_lat, first_office_lon = office_locations[0]
-
-    # Use "Stamen Terrain" with proper attribution
     map_ = folium.Map(
         location=[first_office_lat, first_office_lon],
         zoom_start=5
@@ -90,5 +94,5 @@ def process_employee_data(file_path, gmaps_api_key):
 # Example usage:
 if os.path.exists(data_directory):
     file_path = os.path.join(data_directory, 'sample_employee_data.xlsx')
-    gmaps_api_key = 'AIzaSyBVQjWfN67G9MwBFmk3BeKHMb5Bh1CCwOw'
+    gmaps_api_key = 'GOOGLE_MAPS_API_KEY'
     process_employee_data(file_path, gmaps_api_key)

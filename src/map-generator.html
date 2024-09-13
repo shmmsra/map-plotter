@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Employee Office Map</title>
+    <style>
+      body,
+      html {
+        height: 100%;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #map-container {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      #map {
+        flex-grow: 1;
+        /* Allow map to grow and fill remaining space */
+        width: 100%;
+      }
+
+      .office-btn {
+        margin: 5px;
+        padding: 10px;
+        background-color: lightblue;
+        border: none;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Upload Excel File to Plot Employee and Office Locations</h1>
+    <div id="map-container" style="display: none">
+      <input type="file" id="fileInput" accept=".xlsx" />
+      <div id="officeButtons"></div>
+      <div id="map"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.17.5/dist/xlsx.full.min.js"></script>
+
+    <script>
+      let map;
+      let officeMarkers = [];
+      let officeButtons = {};
+
+      function getApiKey() {
+        return new Promise((resolve, reject) => {
+          let apiKey = window.localStorage.getItem("GoogleMapsAPIKey");
+          if (!apiKey) {
+            apiKey = window.prompt(
+              "Please enter your Google Maps API Key:",
+              ""
+            );
+            if (!apiKey) {
+              window.alert("API Key is required. Please try again.");
+              reject("INVALID_API_KEY");
+            } else {
+              window.localStorage.setItem("GoogleMapsAPIKey", apiKey);
+              resolve(apiKey);
+            }
+          } else {
+            resolve(apiKey);
+          }
+        });
+      }
+
+      function showUI() {
+        getApiKey()
+          .then((apiKey) => {
+            const body = document.body;
+            document.getElementById("map-container").style.display = "flex"; // Show the map view
+
+            initMap(apiKey);
+          })
+          .catch((error) => {
+            console.error("Failed to load the UI:", error);
+          });
+      }
+
+      function initMap(apiKey) {
+        if (!apiKey) {
+          window.alert("API Key is required. Please try again.");
+          return;
+        }
+
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initCallback&libraries=geometry`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
+
+      function initCallback() {
+        map = new google.maps.Map(document.getElementById("map"), {
+          center: { lat: 20.5937, lng: 78.9629 }, // Default center (India)
+          zoom: 5,
+          mapTypeId: "terrain",
+        });
+      }
+
+      document
+        .getElementById("fileInput")
+        .addEventListener("change", handleFileUpload);
+
+      function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = function (e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: "array" });
+            processWorkbook(workbook);
+          };
+          reader.readAsArrayBuffer(file);
+        }
+      }
+
+      function processWorkbook(workbook) {
+        workbook.SheetNames.forEach((sheetName) => {
+          const sheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(sheet);
+          plotLocations(jsonData);
+        });
+      }
+
+      function plotLocations(data) {
+        const officeLocations = {};
+
+        // Loop through employee data and group employees by office
+        data.forEach((row) => {
+          const employeeLat = parseFloat(row.home_latitude);
+          const employeeLon = parseFloat(row.home_longitude);
+          const officeLat = parseFloat(row.office_latitude);
+          const officeLon = parseFloat(row.office_longitude);
+
+          // Group employees by office
+          const officeKey = `${officeLat},${officeLon}`;
+          if (!officeLocations[officeKey]) {
+            officeLocations[officeKey] = {
+              lat: officeLat,
+              lon: officeLon,
+              employees: [],
+            };
+          }
+          officeLocations[officeKey].employees.push({
+            lat: employeeLat,
+            lon: employeeLon,
+          });
+        });
+
+        // Plot employee home locations and create office buttons
+        Object.keys(officeLocations).forEach((officeKey, index) => {
+          const office = officeLocations[officeKey];
+          const officeLat = office.lat;
+          const officeLon = office.lon;
+          const maxDistance = calculateMaxDistance(office, office.employees);
+
+          // Create a button for each office
+          const officeButton = document.createElement("button");
+          officeButton.className = "office-btn";
+          officeButton.textContent = `Office ${index + 1}`;
+          officeButton.onclick = () =>
+            focusOnOffice(officeLat, officeLon, maxDistance);
+          document.getElementById("officeButtons").appendChild(officeButton);
+
+          // Store the button reference for future use
+          officeButtons[officeKey] = officeButton;
+
+          // Plot office circle dynamically based on the farthest employee
+          new google.maps.Circle({
+            strokeColor: "#0000FF",
+            strokeOpacity: 0.8,
+            strokeWeight: 2,
+            fillColor: "#0000FF",
+            fillOpacity: 0.35,
+            map: map,
+            center: { lat: officeLat, lng: officeLon },
+            radius: maxDistance, // Dynamic radius to include all employees
+          });
+
+          // Plot employee home locations
+          office.employees.forEach((employee) => {
+            new google.maps.Marker({
+              position: { lat: employee.lat, lng: employee.lon },
+              map: map,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 4,
+                fillColor: "red",
+                fillOpacity: 1,
+                strokeWeight: 1,
+                strokeColor: "white",
+              },
+            });
+          });
+
+          // Plot the office location with a small office icon
+          new google.maps.Marker({
+            position: { lat: officeLat, lng: officeLon },
+            map: map,
+            icon: {
+              url: "https://maps.google.com/mapfiles/kml/shapes/schools_maps.png", // Office icon
+              scaledSize: new google.maps.Size(30, 30), // Scale the office icon
+            },
+          });
+        });
+      }
+
+      function calculateMaxDistance(office, employees) {
+        const officeLatLng = new google.maps.LatLng(office.lat, office.lon);
+        let maxDistance = 0;
+
+        employees.forEach((employee) => {
+          const employeeLatLng = new google.maps.LatLng(
+            employee.lat,
+            employee.lon
+          );
+          const distance =
+            google.maps.geometry.spherical.computeDistanceBetween(
+              officeLatLng,
+              employeeLatLng
+            );
+          if (distance > maxDistance) {
+            maxDistance = distance;
+          }
+        });
+
+        return maxDistance; // Returns the max distance in meters
+      }
+
+      function focusOnOffice(lat, lon, radius) {
+        const officeLatLng = new google.maps.LatLng(lat, lon);
+
+        // Create bounds based on the radius
+        const bounds = new google.maps.LatLngBounds();
+        bounds.extend(
+          google.maps.geometry.spherical.computeOffset(officeLatLng, radius, 0)
+        ); // North
+        bounds.extend(
+          google.maps.geometry.spherical.computeOffset(officeLatLng, radius, 90)
+        ); // East
+        bounds.extend(
+          google.maps.geometry.spherical.computeOffset(
+            officeLatLng,
+            radius,
+            180
+          )
+        ); // South
+        bounds.extend(
+          google.maps.geometry.spherical.computeOffset(
+            officeLatLng,
+            radius,
+            270
+          )
+        ); // West
+
+        // Adjust the map to fit the bounds
+        map.fitBounds(bounds);
+      }
+
+      document.addEventListener("DOMContentLoaded", showUI);
+    </script>
+  </body>
+</html>

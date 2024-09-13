@@ -1,39 +1,71 @@
 import os
 import pandas as pd
+import numpy as np
 
-# Create sample data for multiple countries (worksheets)
-data_usa = {
-    'employee_id': [101, 102, 103],
-    'employee_name': ['Alice', 'Bob', 'Charlie'],
-    'home_latitude': [37.7749, 34.0522, 40.7128],  # San Francisco, Los Angeles, New York
-    'home_longitude': [-122.4194, -118.2437, -74.0060],
-    'office_latitude': [37.7749, 40.7128, 34.0522],  # Office locations in the same cities
-    'office_longitude': [-122.4194, -74.0060, -118.2437]
-}
+# Function to generate random latitude and longitude for offices and employees
+def generate_random_lat_lon(num_entries, lat_range, lon_range):
+    lats = np.random.uniform(lat_range[0], lat_range[1], num_entries)
+    lons = np.random.uniform(lon_range[0], lon_range[1], num_entries)
+    return lats, lons
 
-data_india = {
-    'employee_id': [201, 202, 203],
-    'employee_name': ['Deepak', 'Priya', 'Karthik'],
-    'home_latitude': [28.7041, 19.0760, 13.0827],  # Delhi, Mumbai, Chennai
-    'home_longitude': [77.1025, 72.8777, 80.2707],
-    'office_latitude': [28.7041, 19.0760, 13.0827],  # Office locations in the same cities
-    'office_longitude': [77.1025, 72.8777, 80.2707]
-}
+# Generate data for a single country
+def generate_country_data(country_name, num_offices, num_employees_per_office, lat_range, lon_range):
+    # Generate office locations
+    office_lats, office_lons = generate_random_lat_lon(num_offices, lat_range, lon_range)
+    
+    employee_data = {
+        'employee_id': [],
+        'employee_name': [],
+        'home_latitude': [],
+        'home_longitude': [],
+        'office_latitude': [],
+        'office_longitude': []
+    }
+    
+    employee_id = 1
+    # Generate employees for each office
+    for office_lat, office_lon in zip(office_lats, office_lons):
+        for _ in range(num_employees_per_office):
+            employee_data['employee_id'].append(employee_id)
+            employee_data['employee_name'].append(f'Employee_{employee_id}')
+            # Generate employee home location near the office (within 0.5 degree radius)
+            home_lat = np.random.uniform(office_lat - 0.5, office_lat + 0.5)
+            home_lon = np.random.uniform(office_lon - 0.5, office_lon + 0.5)
+            employee_data['home_latitude'].append(home_lat)
+            employee_data['home_longitude'].append(home_lon)
+            employee_data['office_latitude'].append(office_lat)
+            employee_data['office_longitude'].append(office_lon)
+            employee_id += 1
+            
+    return pd.DataFrame(employee_data)
 
-# Create a dictionary of dataframes representing each country's worksheet
-excel_data = {
-    'USA': pd.DataFrame(data_usa),
-    'India': pd.DataFrame(data_india)
-}
+# Generate data for multiple countries
+def generate_sample_data():
+    # Define data ranges for different countries
+    countries = {
+        'USA': {'lat_range': [25, 49], 'lon_range': [-125, -66], 'num_offices': 3},
+        'India': {'lat_range': [8, 37], 'lon_range': [68, 97], 'num_offices': 4}
+    }
+    
+    # Create a dictionary of dataframes for each country
+    excel_data = {}
+    
+    for country, info in countries.items():
+        num_employees_per_office = np.random.randint(5, 10)  # 100 to 150 employees per office
+        excel_data[country] = generate_country_data(country, info['num_offices'], num_employees_per_office, 
+                                                    info['lat_range'], info['lon_range'])
+    
+    # Write the data to an Excel file with multiple sheets
+    data_directory = os.path.join(os.path.dirname(__file__), '../data')
+    if not os.path.exists(data_directory):
+        os.makedirs(data_directory)
 
-# Write the data to an Excel file with multiple sheets
-data_directory = os.path.join(os.path.dirname(__file__), '../data')
-if not os.path.exists(data_directory):
-    os.makedirs(data_directory)
+    file_path = os.path.join(data_directory, 'sample_employee_data.xlsx')
+    with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
+        for sheet_name, df in excel_data.items():
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+    
+    return file_path
 
-file_path = os.path.join(data_directory, 'sample_employee_data.xlsx')
-with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
-    for sheet_name, df in excel_data.items():
-        df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-file_path  # Returning the file path for download
+# Generate the sample data
+generate_sample_data()
