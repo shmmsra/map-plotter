@@ -19,6 +19,12 @@
         height: 100%;
       }
 
+      #travel-info {
+        padding: 10px;
+        font-size: 14px;
+        background-color: #f0f0f0;
+      }
+
       #map {
         flex-grow: 1;
         /* Allow map to grow and fill remaining space */
@@ -33,6 +39,8 @@
         cursor: pointer;
       }
     </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.17.5/dist/xlsx.full.min.js"></script>
   </head>
 
   <body>
@@ -40,15 +48,17 @@
     <div id="map-container" style="display: none">
       <input type="file" id="fileInput" accept=".xlsx" />
       <div id="officeButtons"></div>
+      <div id="travel-info"></div>
+      <!-- Travel time and route info -->
       <div id="map"></div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.17.5/dist/xlsx.full.min.js"></script>
-
     <script>
       let map;
-      let officeMarkers = [];
       let officeButtons = {};
+      let directionsService;
+      let directionsRenderer;
+      let trafficLayer;
 
       function getApiKey() {
         return new Promise((resolve, reject) => {
@@ -103,6 +113,13 @@
           zoom: 5,
           mapTypeId: "terrain",
         });
+
+        directionsService = new google.maps.DirectionsService();
+        directionsRenderer = new google.maps.DirectionsRenderer();
+        directionsRenderer.setMap(map);
+
+        trafficLayer = new google.maps.TrafficLayer();
+        trafficLayer.setMap(map);
       }
 
       document
@@ -135,6 +152,7 @@
 
         // Loop through employee data and group employees by office
         data.forEach((row) => {
+          const employeeId = row.employee_id;
           const employeeLat = parseFloat(row.home_latitude);
           const employeeLon = parseFloat(row.home_longitude);
           const officeLat = parseFloat(row.office_latitude);
@@ -150,6 +168,7 @@
             };
           }
           officeLocations[officeKey].employees.push({
+            id: employeeId,
             lat: employeeLat,
             lon: employeeLon,
           });
@@ -160,7 +179,9 @@
           const office = officeLocations[officeKey];
           const officeLat = office.lat;
           const officeLon = office.lon;
-          const maxDistance = calculateMaxDistance(office, office.employees);
+          const maxMiles = 40; // Specify the maximum distance in miles
+          const { maxDistance, nearbyEmployees, faroffEmployees } =
+            calculateMaxDistance(office, office.employees, maxMiles);
 
           // Create a button for each office
           const officeButton = document.createElement("button");
@@ -173,21 +194,48 @@
           // Store the button reference for future use
           officeButtons[officeKey] = officeButton;
 
-          // Plot office circle dynamically based on the farthest employee
-          new google.maps.Circle({
-            strokeColor: "#0000FF",
-            strokeOpacity: 0.8,
-            strokeWeight: 2,
-            fillColor: "#0000FF",
-            fillOpacity: 0.35,
-            map: map,
-            center: { lat: officeLat, lng: officeLon },
-            radius: maxDistance, // Dynamic radius to include all employees
-          });
+          if (nearbyEmployees.length > 0) {
+            // Plot office circle dynamically based on the farthest employee
+            new google.maps.Circle({
+              strokeColor: "#0000FF",
+              strokeOpacity: 0.8,
+              strokeWeight: 2,
+              fillColor: "#0000FF",
+              fillOpacity: 0.45,
+              map: map,
+              center: { lat: officeLat, lng: officeLon },
+              radius: maxDistance, // Dynamic radius to include all employees
+            });
+          }
 
           // Plot employee home locations
-          office.employees.forEach((employee) => {
-            new google.maps.Marker({
+          nearbyEmployees.forEach((employee) => {
+            const employeeMarker = new google.maps.Marker({
+              position: { lat: employee.lat, lng: employee.lon },
+              map: map,
+              icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 4,
+                fillColor: "green",
+                fillOpacity: 1,
+                strokeWeight: 1,
+                strokeColor: "white",
+              },
+            });
+
+            // Add click event to each employee marker
+            employeeMarker.addListener("click", () => {
+              showRouteAndTime(
+                employee.lat,
+                employee.lon,
+                officeLat,
+                officeLon
+              );
+            });
+          });
+
+          faroffEmployees.forEach((employee) => {
+            const employeeMarker = new google.maps.Marker({
               position: { lat: employee.lat, lng: employee.lon },
               map: map,
               icon: {
@@ -213,11 +261,31 @@
         });
       }
 
-      function calculateMaxDistance(office, employees) {
+      function calculateMaxDistance(office, employees, maxMiles) {
         const officeLatLng = new google.maps.LatLng(office.lat, office.lon);
-        let maxDistance = 0;
+        const maxDistanceMeters = maxMiles * 1609.34; // Convert miles to meters
 
-        employees.forEach((employee) => {
+        // Filter employees within the max distance
+        const nearbyEmployees = employees.filter((employee) => {
+          const employeeLatLng = new google.maps.LatLng(
+            employee.lat,
+            employee.lon
+          );
+          const distance =
+            google.maps.geometry.spherical.computeDistanceBetween(
+              officeLatLng,
+              employeeLatLng
+            );
+          return distance <= maxDistanceMeters;
+        });
+
+        const faroffEmployees = employees.filter((employee) => {
+          return !nearbyEmployees.some((e) => e.id === employee.id);
+        });
+
+        // Calculate the maximum distance within the filtered employees
+        let maxDistance = 0;
+        nearbyEmployees.forEach((employee) => {
           const employeeLatLng = new google.maps.LatLng(
             employee.lat,
             employee.lon
@@ -232,7 +300,37 @@
           }
         });
 
-        return maxDistance; // Returns the max distance in meters
+        return {
+          maxDistance,
+          nearbyEmployees,
+          faroffEmployees,
+        }; // Returns the max distance in meters
+      }
+
+      function showRouteAndTime(startLat, startLng, endLat, endLng) {
+        const start = new google.maps.LatLng(startLat, startLng);
+        const end = new google.maps.LatLng(endLat, endLng);
+
+        directionsService.route(
+          {
+            origin: start,
+            destination: end,
+            travelMode: "DRIVING",
+          },
+          (response, status) => {
+            if (status === "OK") {
+              directionsRenderer.setDirections(response);
+
+              // Extract and show the travel time from the response
+              const travelInfo = response.routes[0].legs[0];
+              document.getElementById(
+                "travel-info"
+              ).textContent = `Travel time: ${travelInfo.duration.text}, Distance: ${travelInfo.distance.text}`;
+            } else {
+              console.error("Directions request failed due to " + status);
+            }
+          }
+        );
       }
 
       function focusOnOffice(lat, lon, radius) {
