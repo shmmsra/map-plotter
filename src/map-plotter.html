@@ -12,104 +12,146 @@
             margin: 0;
             display: flex;
             flex-direction: column;
+            font-family: Arial, sans-serif;
         }
 
         #map-container {
             display: flex;
             flex-direction: column;
             height: 100%;
+            flex: 1;
+        }
+
+        #controls {
+            padding: 10px;
+            background-color: #f0f0f0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #officeButtons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
         }
 
         #travel-info {
             padding: 10px;
             font-size: 14px;
-            background-color: #f0f0f0;
+            background-color: #f9f9f9;
+            border-top: 1px solid #ddd;
         }
 
         #map {
             flex-grow: 1;
-            /* Allow map to grow and fill remaining space */
             width: 100%;
         }
 
         .office-btn {
-            margin: 5px;
-            padding: 10px;
-            background-color: lightblue;
+            padding: 10px 15px;
+            background-color: #4a90e2;
+            color: white;
             border: none;
+            border-radius: 4px;
             cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .office-btn:hover {
+            background-color: #357ab8;
         }
     </style>
 
+    <!-- XLSX Library -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.17.5/dist/xlsx.full.min.js"></script>
 </head>
 
 <body>
-    <h1>Upload Excel File to Plot Employee and Office Locations</h1>
-    <div id="map-container" style="display: none">
-        <input type="file" id="fileInput" accept=".xlsx" />
-        <div id="officeButtons"></div>
-        <div id="travel-info"></div>
-        <!-- Travel time and route info -->
+    <header style="padding: 20px; background-color: #4a90e2; color: white;">
+        <h1>Upload Excel File to Plot Employee and Office Locations</h1>
+    </header>
+    <div id="map-container" style="display: none;">
+        <div id="controls">
+            <input type="file" id="fileInput" accept=".xlsx" />
+            <div id="officeButtons"></div>
+        </div>
         <div id="map"></div>
+        <div id="travel-info">Select an employee marker to view travel time and distance.</div>
     </div>
 
     <script>
-        let map;
-        let officeButtons = {};
+        // Global Variables
+        let googleMap;
         let directionsService;
         let directionsRenderer;
         let trafficLayer;
 
-        function getApiKey() {
-            return new Promise((resolve, reject) => {
-                let apiKey = window.localStorage.getItem("GoogleMapsAPIKey");
+        // Cache DOM Elements
+        const mapContainer = document.getElementById('map-container');
+        const fileInput = document.getElementById('fileInput');
+        const officeButtonsContainer = document.getElementById('officeButtons');
+        const travelInfo = document.getElementById('travel-info');
+
+        /**
+         * Retrieves the Google Maps API Key from localStorage or prompts the user.
+         * @returns {Promise<string>} The API Key.
+         */
+        async function getApiKey() {
+            let apiKey = localStorage.getItem("GoogleMapsAPIKey");
+            if (!apiKey) {
+                apiKey = prompt("Please enter your Google Maps API Key:");
                 if (!apiKey) {
-                    apiKey = window.prompt(
-                        "Please enter your Google Maps API Key:",
-                        ""
-                    );
-                    if (!apiKey) {
-                        window.alert("API Key is required. Please try again.");
-                        reject("INVALID_API_KEY");
-                    } else {
-                        window.localStorage.setItem("GoogleMapsAPIKey", apiKey);
-                        resolve(apiKey);
-                    }
-                } else {
-                    resolve(apiKey);
+                    alert("API Key is required. Please try again.");
+                    throw new Error("INVALID_API_KEY");
                 }
+                localStorage.setItem("GoogleMapsAPIKey", apiKey);
+            }
+            return apiKey;
+        }
+
+        /**
+         * Initializes the UI by fetching the API Key and loading the map.
+         */
+        async function showUI() {
+            try {
+                const apiKey = await getApiKey();
+                mapContainer.style.display = "flex";
+                await loadGoogleMapsScript(apiKey);
+            } catch (error) {
+                console.error("Failed to load the UI:", error);
+            }
+        }
+
+        /**
+         * Dynamically loads the Google Maps script.
+         * @param {string} apiKey - The Google Maps API Key.
+         * @returns {Promise<void>}
+         */
+        function loadGoogleMapsScript(apiKey) {
+            return new Promise((resolve, reject) => {
+                if (window.google && window.google.maps) {
+                    resolve();
+                    return;
+                }
+                const script = document.createElement("script");
+                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap&libraries=geometry`;
+                script.async = true;
+                script.defer = true;
+                script.onerror = () => reject(new Error("Failed to load Google Maps script."));
+                window.initMap = () => {
+                    initializeMap();
+                    resolve();
+                };
+                document.head.appendChild(script);
             });
         }
 
-        function showUI() {
-            getApiKey()
-                .then((apiKey) => {
-                    const body = document.body;
-                    document.getElementById("map-container").style.display = "flex"; // Show the map view
-
-                    initMap(apiKey);
-                })
-                .catch((error) => {
-                    console.error("Failed to load the UI:", error);
-                });
-        }
-
-        function initMap(apiKey) {
-            if (!apiKey) {
-                window.alert("API Key is required. Please try again.");
-                return;
-            }
-
-            const script = document.createElement("script");
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initCallback&libraries=geometry`;
-            script.async = true;
-            script.defer = true;
-            document.head.appendChild(script);
-        }
-
-        function initCallback() {
-            map = new google.maps.Map(document.getElementById("map"), {
+        /**
+         * Initializes the Google Map and related services.
+         */
+        function initializeMap() {
+            googleMap = new google.maps.Map(document.getElementById("map"), {
                 center: { lat: 20.5937, lng: 78.9629 }, // Default center (India)
                 zoom: 5,
                 mapTypeId: "terrain",
@@ -117,406 +159,275 @@
 
             directionsService = new google.maps.DirectionsService();
             directionsRenderer = new google.maps.DirectionsRenderer();
-            directionsRenderer.setMap(map);
+            directionsRenderer.setMap(googleMap);
 
             trafficLayer = new google.maps.TrafficLayer();
-            trafficLayer.setMap(map);
+            trafficLayer.setMap(googleMap);
         }
 
-        document
-            .getElementById("fileInput")
-            .addEventListener("change", handleFileUpload);
-
-        function handleFileUpload(event) {
+        /**
+         * Handles the file upload event.
+         * @param {Event} event - The file input change event.
+         */
+        async function handleFileUpload(event) {
             const file = event.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: "array" });
-                    processWorkbook(workbook);
-                };
-                reader.readAsArrayBuffer(file);
+            if (!file) return;
+
+            try {
+                const data = await readExcelFile(file);
+                const processedData = await processWorkbook(data);
+                plotLocations(processedData);
+            } catch (error) {
+                console.error("Error processing file:", error);
+                alert("Failed to process the uploaded file. Please check the console for details.");
             }
         }
 
-        function processWorkbook(workbook) {
-            const mergedData = [];
-            workbook.SheetNames.forEach((sheetName) => {
-                const sheet = workbook.Sheets[sheetName];
-                const jsonData = XLSX.utils.sheet_to_json(sheet);
-                mergedData.push(...jsonData);
-            });
-            processData(mergedData).then((processedData) => {
-                console.info("Processed data:", processedData);
-                plotLocations(processedData);
-            });
-        }
-
-        function processData(data) {
+        /**
+         * Reads the Excel file and returns the workbook data.
+         * @param {File} file - The uploaded Excel file.
+         * @returns {Promise<Array<Object>>} The merged data from all sheets.
+         */
+        function readExcelFile(file) {
             return new Promise((resolve, reject) => {
-                const employeeList = [];
-                const officeList = [];
-
-                data.forEach((row) => {
-                    getLocationFromZipCode(row['Home Postcode']).then((location) => {
-                        console.log('location:', location._latitude, location._longitude);
-                        const home_lat = location._latitude;
-                        const home_lon = location._longitude;
-                        const employee = {
-                            id: row['Employee ID'],
-                            zip_code: row['Home Postcode'],
-                            ...location,
-                        };
-                        const offices = [];
-                        employeeList.push({
-                            ...employee,
-                            offices,
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: "array" });
+                        const mergedData = [];
+                        workbook.SheetNames.forEach((sheetName) => {
+                            const sheet = workbook.Sheets[sheetName];
+                            const jsonData = XLSX.utils.sheet_to_json(sheet);
+                            mergedData.push(...jsonData);
                         });
-
-                        const officeIds = [
-                            'Birmingham Office Postcode',
-                            'Caithness Office Postcode',
-                            'Cardiff Office Postcode',
-                            'Cheadle Office Postcode',
-                            'Crawley Office Postcode',
-                            'Exeter Office Postcode',
-                            'Lancing Offcie Postcode',
-                            'Leeds Office Postcode',
-                            'Liverpool Office Postcode',
-                            'London Office Postcode',
-                            'Reading Office Postcode',
-                            'Worthing Office Postcode',
-                            'Milwaukee Office Postcode',
-                            'Minnesota Office Postcode',
-                            'New York Office Postcode',
-                            'RPK Office Postcode',
-                            'Conshohocken Office Postcode',
-                        ];
-
-                        const promises = [];
-                        officeIds.forEach((officeId) => {
-                            const officeZipCode = row[officeId];
-                            if (officeZipCode) {
-                                promises.push(getLocationFromZipCode(officeZipCode));
-                                offices.push({
-                                    id: officeId,
-                                    zip_code: officeZipCode,
-                                });
-                            }
-                        });
-                        Promise.all(promises).then((locations) => {
-                            locations.forEach((location, index) => {
-                                if (!location) {
-                                    return;
-                                }
-                                const ofc = offices[index];
-                                ofc._latitude = location._latitude;
-                                ofc._longitude = location._longitude;
-                                ofc._lat_lang = location._lat_lang;
-
-                                const office = officeList.find((o) => o.id === ofc.id);
-                                if (office) {
-                                    office.employees.push(employee);
-                                } else {
-                                    const office = {
-                                        ...ofc,
-                                        employees: [employee],
-                                    };
-                                    officeList.push(office);
-                                }
-                            });
-
-                            resolve({
-                                employeeList,
-                                officeList,
-                            });
-                        }).catch((error) => {
-                            console.error(error);
-                        });
-                    }).catch((error) => {
-                        console.error(error);
-                    });
-                });
+                        resolve(mergedData);
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                reader.onerror = () => reject(new Error("Failed to read the file."));
+                reader.readAsArrayBuffer(file);
             });
         }
 
+        /**
+         * Processes the workbook data to extract employee and office information.
+         * @param {Array<Object>} data - The merged data from all sheets.
+         * @returns {Promise<{ employeeList: Array<Object>, officeList: Array<Object> }>} The processed data.
+         */
+        async function processWorkbook(data) {
+            const employeeList = [];
+            const officeMap = new Map();
+
+            const officeIds = [
+                'Birmingham Office Postcode',
+                'Caithness Office Postcode',
+                'Cardiff Office Postcode',
+                'Cheadle Office Postcode',
+                'Crawley Office Postcode',
+                'Exeter Office Postcode',
+                'Lancing Office Postcode',
+                'Leeds Office Postcode',
+                'Liverpool Office Postcode',
+                'London Office Postcode',
+                'Reading Office Postcode',
+                'Worthing Office Postcode',
+                'Milwaukee Office Postcode',
+                'Minnesota Office Postcode',
+                'New York Office Postcode',
+                'RPK Office Postcode',
+                'Conshohocken Office Postcode',
+            ];
+
+            for (const row of data) {
+                try {
+                    const homeLocation = await getLocationFromZipCode(row['Home Postcode']);
+                    if (!homeLocation) {
+                        console.warn(`Invalid Home Postcode for Employee ID: ${row['Employee ID']}`);
+                        continue;
+                    }
+
+                    const employee = {
+                        id: row['Employee ID'],
+                        zip_code: row['Home Postcode'],
+                        latitude: homeLocation.latitude,
+                        longitude: homeLocation.longitude,
+                    };
+                    employeeList.push(employee);
+
+                    // Process each office postcode for the current employee
+                    for (const officeId of officeIds) {
+                        const officeZip = row[officeId];
+                        if (officeZip) {
+                            let office = officeMap.get(officeId);
+                            if (!office) {
+                                const officeLocation = await getLocationFromZipCode(officeZip);
+                                if (!officeLocation) {
+                                    console.warn(`Invalid Zip Code for ${officeId}: ${officeZip}`);
+                                    continue;
+                                }
+                                office = {
+                                    id: officeId,
+                                    zip_code: officeZip,
+                                    latitude: officeLocation.latitude,
+                                    longitude: officeLocation.longitude,
+                                    employees: [],
+                                };
+                                officeMap.set(officeId, office);
+                            }
+                            office.employees.push(employee);
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Error processing row for Employee ID: ${row['Employee ID']}`, error);
+                }
+            }
+
+            const officeList = Array.from(officeMap.values());
+            return { employeeList, officeList };
+        }
+
+        /**
+         * Retrieves the geographical location for a given zip code.
+         * @param {string} zipCode - The postal code.
+         * @returns {Promise<{ latitude: number, longitude: number } | null>} The location or null if not found.
+         */
         function getLocationFromZipCode(zipCode) {
             return new Promise((resolve, reject) => {
                 const geocoder = new google.maps.Geocoder();
-                geocoder.geocode({ address: String(zipCode) }, (results, status) => {
-                    if (status === "OK") {
+                geocoder.geocode({ address: zipCode.toString() }, (results, status) => {
+                    if (status === "OK" && results[0]) {
                         const location = results[0].geometry.location;
                         resolve({
-                            _lat_lan: location,
-                            _latitude: location.lat(),
-                            _longitude: location.lng(),
+                            latitude: location.lat(),
+                            longitude: location.lng(),
                         });
                     } else {
-                        resolve();
-                        // reject("Geocode was not successful for the following reason: " + status);
+                        console.warn(`Geocode failed for zip code ${zipCode}: ${status}`);
+                        resolve(null);
                     }
                 });
             });
         }
 
+        /**
+         * Plots employee and office locations on the map and creates office buttons.
+         * @param {{ employeeList: Array<Object>, officeList: Array<Object> }} data - The processed data.
+         */
         function plotLocations(data) {
-            // Plot employee home locations and create office buttons
+            // Clear previous markers and buttons if any
+            officeButtonsContainer.innerHTML = '';
+            // Optionally, you can keep track of markers to clear them later
+
             data.officeList.forEach((office) => {
-                const officeLat = office._latitude;
-                const officeLon = office._longitude;
-                const maxMiles = 100; // Maximum distance in miles
-                const maxMinutes = 1000; // Maximum travel time in minutes
+                const officeLatLng = { lat: office.latitude, lng: office.longitude };
 
-                calculateMaxDistance(
-                    office,
-                    office.employees,
-                    maxMiles,
-                    maxMinutes,
-                    (nearbyEmployees = [], faroffEmployees = []) => {
-                        const maxDistance = nearbyEmployees.length > 0 && getMaxDistance(
-                            new google.maps.LatLng(office._latitude, office._longitude),
-                            nearbyEmployees
-                        ) || 0;
+                // Create a button for the office
+                const officeButton = document.createElement("button");
+                officeButton.className = "office-btn";
+                officeButton.textContent = office.id.replace(' Office Postcode', '');
+                officeButton.addEventListener("click", () => focusOnOffice(officeLatLng));
+                officeButtonsContainer.appendChild(officeButton);
 
-                        // Create a button for each office
-                        const officeButton = document.createElement("button");
-                        officeButton.className = "office-btn";
-                        officeButton.textContent = `Office ${office.id}`;
-                        officeButton.onclick = () =>
-                            focusOnOffice(officeLat, officeLon, maxDistance);
-                        document
-                            .getElementById("officeButtons")
-                            .appendChild(officeButton);
+                // Draw a circle around the office to represent the area (optional)
+                new google.maps.Circle({
+                    strokeColor: "#0000FF",
+                    strokeOpacity: 0.8,
+                    strokeWeight: 2,
+                    fillColor: "#0000FF",
+                    fillOpacity: 0.1,
+                    map: googleMap,
+                    center: officeLatLng,
+                    radius: 160934, // 100 miles in meters
+                });
 
-                        if (nearbyEmployees.length > 0) {
-                            // Plot office circle dynamically based on the farthest employee
-                            new google.maps.Circle({
-                                strokeColor: "#0000FF",
-                                strokeOpacity: 0.8,
-                                strokeWeight: 2,
-                                fillColor: "#0000FF",
-                                fillOpacity: 0.45,
-                                map: map,
-                                center: { lat: officeLat, lng: officeLon },
-                                radius: maxDistance, // Dynamic radius to include all employees
-                            });
-                        }
+                // Add an office marker
+                new google.maps.Marker({
+                    position: officeLatLng,
+                    map: googleMap,
+                    icon: {
+                        url: "https://maps.google.com/mapfiles/kml/shapes/office_maps.png", // Custom Office Icon
+                        scaledSize: new google.maps.Size(30, 30),
+                    },
+                    title: office.id.replace(' Office Postcode', ''),
+                });
 
-                        // Plot employee home locations
-                        nearbyEmployees.forEach((employee) => {
-                            const employeeMarker = new google.maps.Marker({
-                                position: { lat: employee._latitude, lng: employee._longitude },
-                                map: map,
-                                icon: {
-                                    path: google.maps.SymbolPath.CIRCLE,
-                                    scale: 4,
-                                    fillColor: "green",
-                                    fillOpacity: 1,
-                                    strokeWeight: 1,
-                                    strokeColor: "white",
-                                },
-                            });
+                // Plot employee markers
+                office.employees.forEach((employee) => {
+                    const employeeLatLng = { lat: employee.latitude, lng: employee.longitude };
+                    const markerColor = getDistanceColor(employee, office);
 
-                            // Add click event to each employee marker
-                            employeeMarker.addListener("click", () => {
-                                showRouteAndTime(
-                                    employee._latitude,
-                                    employee._longitude,
-                                    officeLat,
-                                    officeLon
-                                );
-                            });
-                        });
+                    const employeeMarker = new google.maps.Marker({
+                        position: employeeLatLng,
+                        map: googleMap,
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 6,
+                            fillColor: markerColor,
+                            fillOpacity: 1,
+                            strokeWeight: 1,
+                            strokeColor: "white",
+                        },
+                        title: `Employee ID: ${employee.id}`,
+                    });
 
-                        faroffEmployees.forEach((employee) => {
-                            const employeeMarker = new google.maps.Marker({
-                                position: { lat: employee._latitude, lng: employee._longitude },
-                                map: map,
-                                icon: {
-                                    path: google.maps.SymbolPath.CIRCLE,
-                                    scale: 4,
-                                    fillColor: "red",
-                                    fillOpacity: 1,
-                                    strokeWeight: 1,
-                                    strokeColor: "white",
-                                },
-                            });
-                        });
-
-                        // Plot the office location with a small office icon
-                        new google.maps.Marker({
-                            position: { lat: officeLat, lng: officeLon },
-                            map: map,
-                            icon: {
-                                url: "https://maps.google.com/mapfiles/kml/shapes/schools_maps.png", // Office icon
-                                scaledSize: new google.maps.Size(30, 30), // Scale the office icon
-                            },
-                        });
-                    }
-                );
+                    // Add click event to show route and travel time
+                    employeeMarker.addListener("click", () => {
+                        showRouteAndTime(employeeLatLng, officeLatLng);
+                    });
+                });
             });
         }
 
-        function calculateMaxDistance(
-            office,
-            employees,
-            maxMiles,
-            maxMinutes,
-            callback
-        ) {
-            const officeLatLng = new google.maps.LatLng(office._latitude, office._longitude);
-            const maxDistanceMeters = maxMiles * 1609.34; // Convert miles to meters
+        /**
+         * Determines the color of the employee marker based on distance or other criteria.
+         * @param {Object} employee - The employee object.
+         * @param {Object} office - The office object.
+         * @returns {string} The color code.
+         */
+        function getDistanceColor(employee, office) {
+            // Placeholder for distance-based coloring logic
+            // For example, green for nearby, red for far
+            // You can implement actual distance calculations here
+            return "green";
+        }
 
-            let filteredEmployees = employees.filter((employee) => {
-                const employeeLatLng = new google.maps.LatLng(
-                    employee._latitude,
-                    employee._longitude
-                );
-                const distance =
-                    google.maps.geometry.spherical.computeDistanceBetween(
-                        officeLatLng,
-                        employeeLatLng
-                    );
-                return maxMiles === 0 || distance <= maxDistanceMeters; // Include if maxMiles is 0 (no limit) or within maxMiles
-            });
-
-            if (maxMinutes > 0) {
-                // If maxMinutes is provided, filter by travel time
-                const directionsRequests = filteredEmployees.map((employee) => {
-                    return new Promise((resolve, reject) => {
-                        const employeeLatLng = new google.maps.LatLng(
-                            employee._latitude,
-                            employee._longitude
-                        );
-                        directionsService.route(
-                            {
-                                origin: employeeLatLng,
-                                destination: officeLatLng,
-                                travelMode: "DRIVING",
-                            },
-                            (response, status) => {
-                                if (status === "OK") {
-                                    const travelTime =
-                                        response.routes[0].legs[0].duration.value / 60; // Convert seconds to minutes
-                                    resolve({ employee, travelTime });
-                                } else {
-                                    reject("Directions request failed");
-                                }
-                            }
-                        );
-                    });
+        /**
+         * Displays the route and travel time between two locations on the map.
+         * @param {{ lat: number, lng: number }} origin - The starting point.
+         * @param {{ lat: number, lng: number }} destination - The ending point.
+         */
+        async function showRouteAndTime(origin, destination) {
+            try {
+                const response = await directionsService.route({
+                    origin: origin,
+                    destination: destination,
+                    travelMode: "DRIVING", // Changed to a valid travel mode
                 });
 
-                Promise.all(directionsRequests)
-                    .then((results) => {
-                        // Filter employees who satisfy both maxMinutes and maxMiles criteria
-                        filteredEmployees = results
-                            .filter(
-                                (result) =>
-                                    maxMinutes === 0 || result.travelTime <= maxMinutes
-                            )
-                            .map((result) => result.employee);
+                directionsRenderer.setDirections(response);
 
-                        const nearbyEmployees = filteredEmployees;
-                        const faroffEmployees = employees.filter((employee) => {
-                            return !nearbyEmployees.some((e) => e.id === employee.id);
-                        });
-
-                        callback(nearbyEmployees, faroffEmployees); // Use a callback to return asynchronously
-                    })
-                    .catch((error) => {
-                        console.error(error);
-                        callback(); // In case of an error, return 0 distance
-                    });
-            } else {
-                // If no maxMinutes, calculate max distance based only on maxMiles
-                new Promise(() => Promise.resolve()).then(() => {
-                    const nearbyEmployees = filteredEmployees;
-                    const faroffEmployees = employees.filter((employee) => {
-                        return !nearbyEmployees.some((e) => e.id === employee.id);
-                    });
-                    callback(nearbyEmployees, faroffEmployees); // Use a callback to return asynchronously
-                });
+                const leg = response.routes[0].legs[0];
+                travelInfo.textContent = `Travel time: ${leg.duration.text}, Distance: ${leg.distance.text}`;
+            } catch (error) {
+                console.error("Directions request failed:", error);
+                alert("Failed to retrieve directions. Please try again.");
             }
         }
 
-        function getMaxDistance(officeLatLng, employees) {
-            let maxDistance = 0;
-            employees.forEach((employee) => {
-                const employeeLatLng = new google.maps.LatLng(
-                    employee._latitude,
-                    employee._longitude
-                );
-                const distance =
-                    google.maps.geometry.spherical.computeDistanceBetween(
-                        officeLatLng,
-                        employeeLatLng
-                    );
-                if (distance > maxDistance) {
-                    maxDistance = distance;
-                }
-            });
-            return maxDistance;
+        /**
+         * Focuses the map on a specific office location.
+         * @param {{ lat: number, lng: number }} officeLatLng - The office location.
+         */
+        function focusOnOffice(officeLatLng) {
+            googleMap.setCenter(officeLatLng);
+            googleMap.setZoom(10); // Adjust zoom level as needed
         }
 
-        function showRouteAndTime(startLat, startLng, endLat, endLng) {
-            const start = new google.maps.LatLng(startLat, startLng);
-            const end = new google.maps.LatLng(endLat, endLng);
-
-            directionsService.route(
-                {
-                    origin: start,
-                    destination: end,
-                    travelMode: "TWO_WHEELER",
-                },
-                (response, status) => {
-                    if (status === "OK") {
-                        directionsRenderer.setDirections(response);
-
-                        // Extract and show the travel time from the response
-                        const travelInfo = response.routes[0].legs[0];
-                        document.getElementById(
-                            "travel-info"
-                        ).textContent = `Travel time: ${travelInfo.duration.text}, Distance: ${travelInfo.distance.text}`;
-                    } else {
-                        console.error("Directions request failed due to " + status);
-                    }
-                }
-            );
-        }
-
-        function focusOnOffice(lat, lon, radius) {
-            const officeLatLng = new google.maps.LatLng(lat, lon);
-
-            // Create bounds based on the radius
-            const bounds = new google.maps.LatLngBounds();
-            bounds.extend(
-                google.maps.geometry.spherical.computeOffset(officeLatLng, radius, 0)
-            ); // North
-            bounds.extend(
-                google.maps.geometry.spherical.computeOffset(officeLatLng, radius, 90)
-            ); // East
-            bounds.extend(
-                google.maps.geometry.spherical.computeOffset(
-                    officeLatLng,
-                    radius,
-                    180
-                )
-            ); // South
-            bounds.extend(
-                google.maps.geometry.spherical.computeOffset(
-                    officeLatLng,
-                    radius,
-                    270
-                )
-            ); // West
-
-            // Adjust the map to fit the bounds
-            map.fitBounds(bounds);
-        }
-
+        // Event Listeners
         document.addEventListener("DOMContentLoaded", showUI);
+        fileInput.addEventListener("change", handleFileUpload);
     </script>
 </body>
 
