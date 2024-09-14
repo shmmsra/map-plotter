@@ -147,6 +147,8 @@
         let trafficLayer;
         let processedData;
         let zipCodeDistanceMatrix;
+        let radiusMilesThreshold = 40 * 1609.34; // Default radius in meters
+        let travelTimeThreshold = 60 * 60; // Default travel time in seconds
 
         // Cache DOM Elements
         const mapContainer = document.getElementById('map-container');
@@ -283,6 +285,9 @@
 
             try {
                 const data = await readExcelFile(file);
+                radiusMilesThreshold = prompt("Please enter the office radius threshold in miles:") * 1609.34;
+                travelTimeThreshold = prompt("Please enter the travel time threshold in minutes:") * 60;
+
                 processedData = await processWorkbook(data);
                 console.info("Processed data:", processedData);
 
@@ -633,7 +638,7 @@
             try {
                 const distance = await getTravelDistance(employee.zip_code, office.zip_code);
                 const time = await getTravelTime(employee.zip_code, office.zip_code);
-                if (distance && distance < 64374 && time && time < 3600) {
+                if (distance && distance < radiusMilesThreshold || time && time < travelTimeThreshold) {
                     return true;
                 }
             } catch (error) {
