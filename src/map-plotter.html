@@ -469,16 +469,21 @@
 
                 const geocoder = new google.maps.Geocoder();
                 geocoder.geocode({ address: zipCode.toString() }, (results, status) => {
-                    if (status === "OK" && results[0]) {
-                        const location = results[0].geometry.location;
-                        const latlanJSON = {
-                            latitude: location.lat(),
-                            longitude: location.lng(),
-                        };
-                        LocalStorage.setItems('zipCodeLocationMap', zipCode, latlanJSON);
-                        resolve(latlanJSON);
-                    } else {
-                        console.warn(`Geocode failed for zip code ${zipCode}: ${status}`);
+                    try {
+                        if (status === "OK" && results[0]) {
+                            const location = results[0].geometry.location;
+                            const latlanJSON = {
+                                latitude: location.lat(),
+                                longitude: location.lng(),
+                            };
+                            LocalStorage.setItems('zipCodeLocationMap', zipCode, latlanJSON);
+                            resolve(latlanJSON);
+                        } else {
+                            console.warn(`Geocode failed for zip code ${zipCode}: ${status}`);
+                            resolve(null);
+                        }
+                    } catch (error) {
+                        console.warn("Failed to get location from zip code:", error);
                         resolve(null);
                     }
                 });
@@ -504,17 +509,22 @@
                     travelMode: "DRIVING",
                     unitSystem: google.maps.UnitSystem.METRIC,
                 }, (response, status) => {
-                    if (status === "OK") {
-                        const element = response.rows[0].elements[0];
-                        if (element.status === "OK") {
-                            const time = element.duration.value;
-                            LocalStorage.setItems('zipCodeTimeMatrix', `${originZipCode},${destinationZipCode}`, time);
-                            resolve(time);
+                    try {
+                        if (status === "OK") {
+                            const element = response.rows[0].elements[0];
+                            if (element.status === "OK") {
+                                const time = element.duration.value;
+                                LocalStorage.setItems('zipCodeTimeMatrix', `${originZipCode},${destinationZipCode}`, time);
+                                resolve(time);
+                            } else {
+                                reject(new Error("Failed to get travel time."));
+                            }
                         } else {
                             reject(new Error("Failed to get travel time."));
                         }
-                    } else {
-                        reject(new Error("Failed to get travel time."));
+                    } catch (error) {
+                        console.error("Failed to get travel time:", error);
+                        reject(error);
                     }
                 });
             });
@@ -539,17 +549,22 @@
                     travelMode: "DRIVING",
                     unitSystem: google.maps.UnitSystem.METRIC,
                 }, (response, status) => {
-                    if (status === "OK") {
-                        const element = response.rows[0].elements[0];
-                        if (element.status === "OK") {
-                            const distance = response.rows[0].elements[0].distance.value;
-                            LocalStorage.setItems('zipCodeDistanceMatrix', `${originZipCode},${destinationZipCode}`, distance);
-                            resolve(distance);
+                    try {
+                        if (status === "OK") {
+                            const element = response.rows[0].elements[0];
+                            if (element.status === "OK") {
+                                const distance = response.rows[0].elements[0].distance.value;
+                                LocalStorage.setItems('zipCodeDistanceMatrix', `${originZipCode},${destinationZipCode}`, distance);
+                                resolve(distance);
+                            } else {
+                                reject(new Error("Failed to get travel distance."));
+                            }
                         } else {
                             reject(new Error("Failed to get travel distance."));
                         }
-                    } else {
-                        reject(new Error("Failed to get travel distance."));
+                    } catch (error) {
+                        console.error("Failed to get travel distance:", error);
+                        reject(error);
                     }
                 });
             });
@@ -563,14 +578,19 @@
                     return;
                 }
 
-                const origin = LocalStorage.getItems('zipCodeLocationMap', originZipCode);
-                const destination = LocalStorage.getItems('zipCodeLocationMap', destinationZipCode);
-                const start = new google.maps.LatLng(origin.latitude, origin.longitude);
-                const end = new google.maps.LatLng(destination.latitude, destination.longitude);
-                distance = google.maps.geometry.spherical.computeDistanceBetween(start, end);
+                try {
+                    const origin = LocalStorage.getItems('zipCodeLocationMap', originZipCode);
+                    const destination = LocalStorage.getItems('zipCodeLocationMap', destinationZipCode);
+                    const start = new google.maps.LatLng(origin.latitude, origin.longitude);
+                    const end = new google.maps.LatLng(destination.latitude, destination.longitude);
+                    distance = google.maps.geometry.spherical.computeDistanceBetween(start, end);
 
-                LocalStorage.setItems('zipCodeDistanceMatrix', `${originZipCode},${destinationZipCode}`, distance);
-                resolve(distance);
+                    LocalStorage.setItems('zipCodeDistanceMatrix', `${originZipCode},${destinationZipCode}`, distance);
+                    resolve(distance);
+                } catch (error) {
+                    console.error("Failed to get shortest distance:", error);
+                    resolve(Infinity);
+                }
             });
         }
 
@@ -668,32 +688,6 @@
                 console.warn("Failed to evaluate isEmployeeOfficeGoodMatch:", error);
             }
             return false;
-        }
-
-        /**
-         * Displays the route and travel time between two locations on the map.
-         * @param {{ lat: number, lng: number }} origin - The starting point.
-         * @param {{ lat: number, lng: number }} destination - The ending point.
-         */
-        async function showRouteAndTime(origin, destination) {
-            const start = new google.maps.LatLng(origin.lat, origin.lng);
-            const end = new google.maps.LatLng(destination.lat, destination.lng);
-
-            try {
-                const response = await directionsService.route({
-                    origin: start,
-                    destination: end,
-                    travelMode: "DRIVING", // Changed to a valid travel mode
-                });
-
-                directionsRenderer.setDirections(response);
-
-                const leg = response.routes[0].legs[0];
-                travelInfo.textContent = `Travel time: ${leg.duration.text}, Distance: ${leg.distance.text}`;
-            } catch (error) {
-                console.error("Directions request failed:", error);
-                alert("Failed to retrieve directions. Please try again.");
-            }
         }
 
         /**
