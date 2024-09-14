@@ -1,4 +1,5 @@
 .DS_Store
+**/\~\$*
 pyvenv.cfg
 bin/
 lib/
