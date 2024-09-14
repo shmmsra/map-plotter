@@ -427,6 +427,7 @@
                 }
             }
 
+            LocalStorage.save();
             await Promise.all(officeList.map(async (office) => {
                 if (!office.latitude || !office.longitude) {
                     console.warn(`Skipping office ${office.id} due to missing location data.`);
@@ -445,6 +446,7 @@
                 }));
             }));
 
+            LocalStorage.save();
             return { employeeList, officeList };
         }
 
