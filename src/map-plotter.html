@@ -108,6 +108,12 @@
         const officeButtonsContainer = document.getElementById('officeButtons');
         const travelInfo = document.getElementById('travel-info');
 
+        // Event listener for reset button
+        document.getElementById('resetApiKey').addEventListener('click', () => {
+            localStorage.removeItem("GoogleMapsAPIKey");
+            window.location.reload();
+        });
+
         // Function to export JSON data to Excel
         function exportJsonToExcel(jsonData, fileName = "data.xlsx") {
             // 1. Create a new workbook
