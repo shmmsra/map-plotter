@@ -100,6 +100,10 @@
             class LocalStorage {
                 storage = {};
 
+                autoFlushRunner = setInterval(() => {
+                    this.save();
+                }, 10000);
+
                 constructor() {
                     const globalStr = localStorage.getItem("global");
                     if (globalStr) {
@@ -138,7 +142,7 @@
                     this.storage[category][key] = value;
                 }
 
-                flush() {
+                save() {
                     localStorage.setItem("global", JSON.stringify(this.storage['global']));
                     localStorage.setItem("zipCodeLocationMap", JSON.stringify(this.storage['zipCodeLocationMap']));
                     localStorage.setItem("zipCodeDistanceMatrix", JSON.stringify(this.storage['zipCodeDistanceMatrix']));
@@ -146,6 +150,7 @@
                 }
 
                 clear() {
+                    this.storage = {};
                     localStorage.removeItem("global");
                     localStorage.removeItem("zipCodeLocationMap");
                     localStorage.removeItem("zipCodeDistanceMatrix");
@@ -241,7 +246,7 @@
         async function showUI() {
             try {
                 const apiKey = await getApiKey();
-                LocalStorage.flush();
+                LocalStorage.save();
                 mapContainer.style.display = "flex";
                 await loadGoogleMapsScript(apiKey);
             } catch (error) {
@@ -314,7 +319,7 @@
                 alert("Failed to process the uploaded file. Please check the console for details.");
             }
 
-            LocalStorage.flush();
+            LocalStorage.save();
         }
 
         /**
