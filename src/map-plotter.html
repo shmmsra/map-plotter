@@ -30,6 +30,18 @@
             gap: 10px;
         }
 
+        .control-btn {
+            padding: 10px;
+            background-color: lightcoral;
+            border: none;
+            cursor: pointer;
+        }
+
+        .export-btn {
+            background-color: lightgreen;
+        }
+
+
         #officeButtons {
             display: flex;
             flex-wrap: wrap;
@@ -68,11 +80,13 @@
 </head>
 
 <body>
-    <header style="padding: 20px; background-color: #4a90e2; color: white;">
-        <h1>Upload Excel File to Plot Employee and Office Locations</h1>
+    <header style="padding: 4px 16px 4px 16px; background-color: #4a90e2; color: white;">
+        <h2>Upload Excel File to Plot Employee and Office Locations</h2>
     </header>
     <div id="map-container" style="display: none;">
         <div id="controls">
+            <button id="resetApiKey" class="control-btn">Reset API Key</button>
+            <button id="exportData" class="control-btn export-btn">Export Data</button>
             <input type="file" id="fileInput" accept=".xlsx" />
             <div id="officeButtons"></div>
         </div>
@@ -86,12 +100,54 @@
         let directionsService;
         let directionsRenderer;
         let trafficLayer;
+        let processedData;
 
         // Cache DOM Elements
         const mapContainer = document.getElementById('map-container');
         const fileInput = document.getElementById('fileInput');
         const officeButtonsContainer = document.getElementById('officeButtons');
         const travelInfo = document.getElementById('travel-info');
+
+        // Function to export JSON data to Excel
+        function exportJsonToExcel(jsonData, fileName = "data.xlsx") {
+            // 1. Create a new workbook
+            const wb = XLSX.utils.book_new();
+
+            // 2. Convert JSON data to a worksheet
+            const ws = XLSX.utils.json_to_sheet(jsonData);
+
+            // 3. Append the worksheet to the workbook
+            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+
+            // 4. Write the workbook to a file
+            XLSX.writeFile(wb, fileName);
+        }
+
+        // Event listener for export button
+        document.getElementById('exportData').addEventListener('click', () => {
+            if (!processedData || !processedData.employeeList.length) {
+                alert("No data to export. Please upload a file first.");
+                return;
+            }
+            function cloneEmployeesData(employeesData) {
+                return employeesData.map(employee => {
+                    return {
+                        "Employee ID": employee.id,
+                        "Job Level": employee.job_level,
+                        "Line Manager": employee.line_manager,
+                        "Home Postcode": employee.zip_code,
+                        "Home Latitude": employee.latitude,
+                        "Home Longitude": employee.longitude,
+                        ...employee.offices.reduce((acc, office) => {
+                            acc[office.id] = office.zip_code;
+                            return acc;
+                        }, {}),
+                    };
+                });
+            }
+            const employeesData = cloneEmployeesData(processedData.employeeList);
+            exportJsonToExcel(employeesData, "EmployeeData.xlsx");
+        });
 
         /**
          * Retrieves the Google Maps API Key from localStorage or prompts the user.
@@ -175,7 +231,8 @@
 
             try {
                 const data = await readExcelFile(file);
-                const processedData = await processWorkbook(data);
+                processedData = await processWorkbook(data);
+                console.info("Processed data:", processedData);
                 plotLocations(processedData);
             } catch (error) {
                 console.error("Error processing file:", error);
@@ -218,7 +275,7 @@
          */
         async function processWorkbook(data) {
             const employeeList = [];
-            const officeMap = new Map();
+            const officeList = [];
 
             const officeIds = [
                 'Birmingham Office Postcode',
@@ -250,9 +307,12 @@
 
                     const employee = {
                         id: row['Employee ID'],
+                        job_level: row['Job Level'],
+                        line_manager: row['Line Manager'],
                         zip_code: row['Home Postcode'],
                         latitude: homeLocation.latitude,
                         longitude: homeLocation.longitude,
+                        offices: [],
                     };
                     employeeList.push(employee);
 
@@ -260,23 +320,27 @@
                     for (const officeId of officeIds) {
                         const officeZip = row[officeId];
                         if (officeZip) {
-                            let office = officeMap.get(officeId);
+                            const office = officeList.find((o) => o.id === officeId);
                             if (!office) {
                                 const officeLocation = await getLocationFromZipCode(officeZip);
                                 if (!officeLocation) {
                                     console.warn(`Invalid Zip Code for ${officeId}: ${officeZip}`);
-                                    continue;
                                 }
-                                office = {
+
+                                const office = {
                                     id: officeId,
                                     zip_code: officeZip,
-                                    latitude: officeLocation.latitude,
-                                    longitude: officeLocation.longitude,
+                                    latitude: officeLocation && officeLocation.latitude,
+                                    longitude: officeLocation && officeLocation.longitude,
                                     employees: [],
                                 };
-                                officeMap.set(officeId, office);
+                                officeList.push(office);
+                                office.employees.push(employee);
+                                employee.offices.push(office);
+                            } else {
+                                office.employees.push(employee);
+                                employee.offices.push(office);
                             }
-                            office.employees.push(employee);
                         }
                     }
                 } catch (error) {
@@ -284,7 +348,6 @@
                 }
             }
 
-            const officeList = Array.from(officeMap.values());
             return { employeeList, officeList };
         }
 
@@ -295,14 +358,27 @@
          */
         function getLocationFromZipCode(zipCode) {
             return new Promise((resolve, reject) => {
+                if (!zipCode) {
+                    resolve(null);
+                    return;
+                }
+                const latlan = localStorage.getItem(`zip_code-${zipCode}`);
+                if (latlan) {
+                    const [latitude, longitude] = latlan.split(',');
+                    resolve({ latitude: parseFloat(latitude), longitude: parseFloat(longitude) });
+                    return;
+                }
+
                 const geocoder = new google.maps.Geocoder();
                 geocoder.geocode({ address: zipCode.toString() }, (results, status) => {
                     if (status === "OK" && results[0]) {
                         const location = results[0].geometry.location;
-                        resolve({
+                        const latlanJSON = {
                             latitude: location.lat(),
                             longitude: location.lng(),
-                        });
+                        };
+                        localStorage.setItem(`zip_code-${zipCode}`, `${latlanJSON.latitude},${latlanJSON.longitude}`);
+                        resolve(latlanJSON);
                     } else {
                         console.warn(`Geocode failed for zip code ${zipCode}: ${status}`);
                         resolve(null);
@@ -321,6 +397,10 @@
             // Optionally, you can keep track of markers to clear them later
 
             data.officeList.forEach((office) => {
+                if (!office.latitude || !office.longitude) {
+                    console.warn(`Skipping office ${office.id} due to missing location data.`);
+                    return;
+                }
                 const officeLatLng = { lat: office.latitude, lng: office.longitude };
 
                 // Create a button for the office
@@ -347,7 +427,7 @@
                     position: officeLatLng,
                     map: googleMap,
                     icon: {
-                        url: "https://maps.google.com/mapfiles/kml/shapes/office_maps.png", // Custom Office Icon
+                        url: "https://maps.google.com/mapfiles/kml/shapes/schools_maps.png", // Custom Office Icon
                         scaledSize: new google.maps.Size(30, 30),
                     },
                     title: office.id.replace(' Office Postcode', ''),
@@ -399,10 +479,13 @@
          * @param {{ lat: number, lng: number }} destination - The ending point.
          */
         async function showRouteAndTime(origin, destination) {
+            const start = new google.maps.LatLng(origin.lat, origin.lng);
+            const end = new google.maps.LatLng(destination.lat, destination.lng);
+
             try {
                 const response = await directionsService.route({
-                    origin: origin,
-                    destination: destination,
+                    origin: start,
+                    destination: end,
                     travelMode: "DRIVING", // Changed to a valid travel mode
                 });
 

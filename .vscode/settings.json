@@ -13,4 +13,8 @@
         {"column": 120, "color": "#5a5a5a40"}  // extra right rule
     ],
     "terminal.integrated.scrollback": 10000,
+    "cSpell.words": [
+        "geocoder",
+        "latlan"
+    ],
 }
