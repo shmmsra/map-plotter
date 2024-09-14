@@ -577,7 +577,7 @@
                         url: "https://maps.google.com/mapfiles/kml/shapes/schools_maps.png", // Custom Office Icon
                         scaledSize: new google.maps.Size(30, 30),
                     },
-                    title: office.id.replace(' Office Postcode', ''),
+                    title: `${office.id.replace(' Office Postcode', '')}: ${office.nearByEmployees.length} employees`,
                 });
 
                 let distances = await Promise.all(office.nearByEmployees.map((employee) => {
