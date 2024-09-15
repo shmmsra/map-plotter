@@ -15,6 +15,15 @@
             font-family: Arial, sans-serif;
         }
 
+        .header {
+            padding: 4px 16px 4px 16px;
+            background-color: #4a90e2;
+            color: white;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+        }
+
         #map-container {
             display: flex;
             flex-direction: column;
@@ -24,10 +33,21 @@
 
         #controls {
             padding: 10px;
-            background-color: #f0f0f0;
             display: flex;
+            flex-direction: row;
             align-items: center;
             gap: 10px;
+        }
+
+        .file-input {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+        }
+
+        .file-input .btn {
+            width: 128px;
+            text-align: end;
         }
 
         .control-btn {
@@ -41,27 +61,22 @@
             background-color: lightgreen;
         }
 
+        #fileSelector {
+            display: flex;
+            flex-direction: column;
+        }
 
         #officeButtons {
             display: flex;
             flex-wrap: wrap;
             gap: 5px;
-        }
-
-        #travel-info {
-            padding: 10px;
-            font-size: 14px;
-            background-color: #f9f9f9;
-            border-top: 1px solid #ddd;
-        }
-
-        #map {
-            flex-grow: 1;
-            width: 100%;
+            background-color: whitesmoke;
+            border-bottom: 2px solid #4a90e2;
         }
 
         .office-btn {
             padding: 10px 15px;
+            margin: 4px;
             background-color: #4a90e2;
             color: white;
             border: none;
@@ -73,6 +88,11 @@
         .office-btn:hover {
             background-color: #357ab8;
         }
+
+        #map {
+            flex-grow: 1;
+            width: 100%;
+        }
     </style>
 
     <!-- XLSX Library -->
@@ -80,18 +100,27 @@
 </head>
 
 <body>
-    <header style="padding: 4px 16px 4px 16px; background-color: #4a90e2; color: white;">
+    <header class="header">
         <h2>Upload Excel File to Plot Employee and Office Locations</h2>
-    </header>
-    <div id="map-container" style="display: none;">
         <div id="controls">
             <button id="resetApiKey" class="control-btn">Reset API Key</button>
+            <button id="processData" class="control-btn export-btn">Process Data</button>
             <button id="exportData" class="control-btn export-btn">Export Data</button>
-            <input type="file" id="fileInput" accept=".xlsx" />
-            <div id="officeButtons"></div>
+            <div id="fileSelector">
+                <div class="file-input">
+                    <label for="excelFileInput" class="btn">Select Excel</label>
+                    <input type="file" id="excelFileInput" accept=".xlsx" />
+                </div>
+                <div class="file-input">
+                    <label for="jsonFileInput" class="btn">Select JSON</label>
+                    <input type="file" id="jsonFileInput" accept=".json" />
+                </div>
+            </div>
         </div>
+    </header>
+    <div id="officeButtons"></div>
+    <div id="map-container" style="display: none;">
         <div id="map"></div>
-        <div id="travel-info">Select an employee marker to view travel time and distance.</div>
     </div>
 
     <script>
@@ -163,19 +192,24 @@
         let trafficLayer;
         let processedData;
         let zipCodeDistanceMatrix;
+        let zipCodeDistanceAndTimeMatrix;
         let radiusMilesThreshold = 40 * 1609.34; // Default radius in meters
         let travelTimeThreshold = 60 * 60; // Default travel time in seconds
 
         // Cache DOM Elements
         const mapContainer = document.getElementById('map-container');
-        const fileInput = document.getElementById('fileInput');
+        const excelFileInput = document.getElementById('excelFileInput');
         const officeButtonsContainer = document.getElementById('officeButtons');
-        const travelInfo = document.getElementById('travel-info');
 
         // Event listener for reset button
         document.getElementById('resetApiKey').addEventListener('click', () => {
             LocalStorage.clear();
             window.location.reload();
+        });
+
+        // Event listener for process button
+        document.getElementById('processData').addEventListener('click', () => {
+            handleFileUpload();
         });
 
         // Function to export JSON data to Excel
@@ -296,12 +330,19 @@
          * Handles the file upload event.
          * @param {Event} event - The file input change event.
          */
-        async function handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
+        async function handleFileUpload() {
             try {
-                const data = await readExcelFile(file);
+                const data = await readExcelFile();
+                if (!data || !data.length) {
+                    alert("No data found in the uploaded file.");
+                    throw new Error("No data found in the uploaded file.");
+                } else if (data.length > 4000) {
+                    alert("Too many rows in the uploaded file. Please upload a smaller file (Max 4000 rows).");
+                    throw new Error("Too many rows in the uploaded file.");
+                }
+
+                const json = await readJSONFile();
+                zipCodeDistanceAndTimeMatrix = json;
                 radiusMilesThreshold = prompt("Please enter the office radius threshold in miles:") * 1609.34;
                 travelTimeThreshold = prompt("Please enter the travel time threshold in minutes:") * 60;
 
@@ -310,12 +351,12 @@
 
                 await plotOfficeLocations(processedData.officeList);
                 await plotEmployeeLocations(processedData.employeeList);
+
+                LocalStorage.save();
             } catch (error) {
                 console.error("Error processing file:", error);
                 alert("Failed to process the uploaded file. Please check the console for details.");
             }
-
-            LocalStorage.save();
         }
 
         /**
@@ -323,8 +364,14 @@
          * @param {File} file - The uploaded Excel file.
          * @returns {Promise<Array<Object>>} The merged data from all sheets.
          */
-        function readExcelFile(file) {
+        function readExcelFile() {
             return new Promise((resolve, reject) => {
+                const input = document.getElementById('excelFileInput');
+                const file = input.files[0];
+                if (!file) {
+                    reject(new Error("No file selected."));
+                };
+
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
@@ -343,6 +390,34 @@
                 };
                 reader.onerror = () => reject(new Error("Failed to read the file."));
                 reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function readJSONFile() {
+            return new Promise((resolve, reject) => {
+                const input = document.getElementById('jsonFileInput');
+                const file = input.files[0];
+
+                if (!file) {
+                    alert('Please select a JSON file first.');
+                    return;
+                }
+
+                const reader = new FileReader();
+
+                // When the file is successfully read
+                reader.onload = function (event) {
+                    try {
+                        const json = JSON.parse(event.target.result);
+                        resolve(json);
+                    } catch (e) {
+                        alert('Error parsing JSON file.');
+                        reject(error);
+                    }
+                };
+
+                // Read the file as a text string
+                reader.readAsText(file);
             });
         }
 
@@ -424,6 +499,7 @@
             }
 
             LocalStorage.save();
+
             await Promise.all(officeList.map(async (office) => {
                 if (!office.latitude || !office.longitude) {
                     console.warn(`Skipping office ${office.id} due to missing location data.`);
@@ -486,86 +562,6 @@
             });
         }
 
-        function getTravelTime(originZipCode, destinationZipCode) {
-            return new Promise((resolve, reject) => {
-                const time = LocalStorage.getItems('zipCodeTimeMatrix', `${originZipCode},${destinationZipCode}`);
-                if (time) {
-                    resolve(time);
-                    return;
-                }
-
-                const origin = LocalStorage.getItems('zipCodeLocationMap', originZipCode);
-                const destination = LocalStorage.getItems('zipCodeLocationMap', destinationZipCode);
-                const start = new google.maps.LatLng(origin.latitude, origin.longitude);
-                const end = new google.maps.LatLng(destination.latitude, destination.longitude);
-                const service = new google.maps.DistanceMatrixService();
-                service.getDistanceMatrix({
-                    origins: [start],
-                    destinations: [end],
-                    travelMode: "DRIVING",
-                    unitSystem: google.maps.UnitSystem.METRIC,
-                }, (response, status) => {
-                    try {
-                        if (status === "OK") {
-                            const element = response.rows[0].elements[0];
-                            if (element.status === "OK") {
-                                const time = element.duration.value;
-                                LocalStorage.setItems('zipCodeTimeMatrix', `${originZipCode},${destinationZipCode}`, time);
-                                resolve(time);
-                            } else {
-                                reject(new Error("Failed to get travel time."));
-                            }
-                        } else {
-                            reject(new Error("Failed to get travel time."));
-                        }
-                    } catch (error) {
-                        console.error("Failed to get travel time:", error);
-                        reject(error);
-                    }
-                });
-            });
-        }
-
-        function getTravelDistance(originZipCode, destinationZipCode) {
-            return new Promise((resolve, reject) => {
-                const distance = LocalStorage.getItems('zipCodeDistanceMatrix', `${originZipCode},${destinationZipCode}`);
-                if (distance) {
-                    resolve(distance);
-                    return;
-                }
-
-                const origin = LocalStorage.getItems('zipCodeLocationMap', originZipCode);
-                const destination = LocalStorage.getItems('zipCodeLocationMap', destinationZipCode);
-                const start = new google.maps.LatLng(origin.latitude, origin.longitude);
-                const end = new google.maps.LatLng(destination.latitude, destination.longitude);
-                const service = new google.maps.DistanceMatrixService();
-                service.getDistanceMatrix({
-                    origins: [start],
-                    destinations: [end],
-                    travelMode: "DRIVING",
-                    unitSystem: google.maps.UnitSystem.METRIC,
-                }, (response, status) => {
-                    try {
-                        if (status === "OK") {
-                            const element = response.rows[0].elements[0];
-                            if (element.status === "OK") {
-                                const distance = response.rows[0].elements[0].distance.value;
-                                LocalStorage.setItems('zipCodeDistanceMatrix', `${originZipCode},${destinationZipCode}`, distance);
-                                resolve(distance);
-                            } else {
-                                reject(new Error("Failed to get travel distance."));
-                            }
-                        } else {
-                            reject(new Error("Failed to get travel distance."));
-                        }
-                    } catch (error) {
-                        console.error("Failed to get travel distance:", error);
-                        reject(error);
-                    }
-                });
-            });
-        }
-
         function getShortestDistance(originZipCode, destinationZipCode) {
             return new Promise((resolve, reject) => {
                 let distance = LocalStorage.getItems('zipCodeDistanceMatrix', `${originZipCode},${destinationZipCode}`);
@@ -618,7 +614,7 @@
                     position: officeLatLng,
                     map: googleMap,
                     icon: {
-                        url: "https://maps.google.com/mapfiles/kml/shapes/schools_maps.png", // Custom Office Icon
+                        url: "http://maps.google.com/mapfiles/kml/pushpin/purple-pushpin.png", // Custom Office Icon
                         scaledSize: new google.maps.Size(30, 30),
                     },
                     title: `${office.id.replace(' Office Postcode', '')}: ${office.nearByEmployees.length} employees`,
@@ -675,9 +671,16 @@
 
         async function isEmployeeOfficeGoodMatch(employee, office) {
             try {
-                const distance = await getTravelDistance(employee.zip_code, office.zip_code);
-                const time = await getTravelTime(employee.zip_code, office.zip_code);
-                if (distance && distance < radiusMilesThreshold || time && time < travelTimeThreshold) {
+                const origin = employee.zip_code.split(' ').join('').toUpperCase();
+                const destination = office.zip_code.split(' ').join('').toUpperCase();
+                const data = zipCodeDistanceAndTimeMatrix[`${origin},${destination}`];
+                if (!data) {
+                    return false;
+                }
+                const { distance, time } = data;
+                const distanceInRange = (radiusMilesThreshold > 0) ? (distance && distance < radiusMilesThreshold) : true;
+                const timeInRange = (travelTimeThreshold > 0) ? (time && time < travelTimeThreshold) : true;
+                if (distanceInRange && timeInRange) {
                     return true;
                 }
             } catch (error) {
@@ -697,7 +700,6 @@
 
         // Event Listeners
         document.addEventListener("DOMContentLoaded", showUI);
-        fileInput.addEventListener("change", handleFileUpload);
     </script>
 </body>
 
