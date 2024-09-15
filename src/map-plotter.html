@@ -100,10 +100,6 @@
             class LocalStorage {
                 storage = {};
 
-                autoFlushRunner = setInterval(() => {
-                    this.save();
-                }, 10000);
-
                 constructor() {
                     const globalStr = localStorage.getItem("global");
                     if (globalStr) {
