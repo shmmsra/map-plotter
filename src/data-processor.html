@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel File Processor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            width: 80%;
+            max-width: 900px;
+            background-color: white;
+            padding: 20px;
+            margin-top: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+        }
+
+        h1,
+        h3 {
+            text-align: center;
+        }
+
+        .header,
+        .footer {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .tools-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .tool-item {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            background-color: #fafafa;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .tool-inputs {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .tool-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .footer button {
+            margin-top: 20px;
+        }
+
+        input[type="file"] {
+            margin: 10px 0;
+        }
+
+        input[type="text"] {
+            padding: 8px;
+            font-size: 14px;
+        }
+
+        input[type="checkbox"] {
+            margin-right: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Excel File Processor</h1>
+
+        <div class="header">
+            <h3>Upload Excel File</h3>
+            <input type="file" id="fileInput" accept=".xlsx">
+            <p id="fileName"></p>
+        </div>
+
+        <div class="tools-list" id="toolsList">
+            <!-- Tool items will be inserted here -->
+        </div>
+
+        <div class="footer">
+            <button id="exportJSON" disabled>Export All JSON</button>
+            <button id="exportExcel" disabled>Export All Excel</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script>
+        let excelData = null;
+        const outputData = [];
+
+        // Tools/Functions
+        const tools = [
+            {
+                name: "Function 1 - Sum of Column",
+                parameters: [
+                    { type: "text", label: "Column Name" }
+                ],
+                execute: (params) => {
+                    // Mock function to sum a column
+                    const column = params[0];
+                    let sum = 0;
+                    // Assuming excelData contains array of objects where key is the column name
+                    excelData.forEach(row => {
+                        sum += parseFloat(row[column]) || 0;
+                    });
+                    return { result: `Sum of column ${column}: ${sum}` };
+                }
+            },
+            {
+                name: "Function 2 - Count Rows",
+                parameters: [],
+                execute: () => {
+                    // Mock function to count rows
+                    const count = excelData.length;
+                    return { result: `Total Rows: ${count}` };
+                }
+            }
+        ];
+
+        // Event handler for file upload
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('fileName').textContent = `File: ${file.name}`;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    excelData = XLSX.utils.sheet_to_json(firstSheet);
+                    alert('File loaded successfully');
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+
+        // Load tool items
+        const toolsList = document.getElementById('toolsList');
+        tools.forEach((tool, index) => {
+            const toolDiv = document.createElement('div');
+            toolDiv.className = 'tool-item';
+
+            const toolInputs = document.createElement('div');
+            toolInputs.className = 'tool-inputs';
+            tool.parameters.forEach(param => {
+                const label = document.createElement('label');
+                const input = document.createElement('input');
+                input.type = param.type;
+                input.placeholder = param.label;
+                toolInputs.appendChild(label);
+                toolInputs.appendChild(input);
+            });
+
+            const toolActions = document.createElement('div');
+            toolActions.className = 'tool-actions';
+            const executeBtn = document.createElement('button');
+            executeBtn.textContent = 'Execute';
+            const exportJSONBtn = document.createElement('button');
+            exportJSONBtn.textContent = 'Export JSON';
+            exportJSONBtn.disabled = true;
+            const exportExcelBtn = document.createElement('button');
+            exportExcelBtn.textContent = 'Export Excel';
+            exportExcelBtn.disabled = true;
+
+            executeBtn.addEventListener('click', () => {
+                const inputs = Array.from(toolInputs.querySelectorAll('input')).map(input => input.value);
+                const result = tool.execute(inputs);
+                outputData.push(result);
+                alert(result.result);
+                exportJSONBtn.disabled = false;
+                exportExcelBtn.disabled = false;
+                document.getElementById('exportJSON').disabled = false;
+                document.getElementById('exportExcel').disabled = false;
+            });
+
+            toolActions.appendChild(executeBtn);
+            toolActions.appendChild(exportJSONBtn);
+            toolActions.appendChild(exportExcelBtn);
+
+            toolDiv.appendChild(toolInputs);
+            toolDiv.appendChild(toolActions);
+            toolsList.appendChild(toolDiv);
+
+            exportJSONBtn.addEventListener('click', () => {
+                const json = JSON.stringify(outputData[index], null, 2);
+                downloadFile(json, `function_${index}_output.json`, 'application/json');
+            });
+
+            exportExcelBtn.addEventListener('click', () => {
+                const ws = XLSX.utils.json_to_sheet([outputData[index]]);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+                XLSX.writeFile(wb, `function_${index}_output.xlsx`);
+            });
+        });
+
+        // Export all JSON
+        document.getElementById('exportJSON').addEventListener('click', () => {
+            const json = JSON.stringify(outputData, null, 2);
+            downloadFile(json, 'all_functions_output.json', 'application/json');
+        });
+
+        // Export all Excel
+        document.getElementById('exportExcel').addEventListener('click', () => {
+            const ws = XLSX.utils.json_to_sheet(outputData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+            XLSX.writeFile(wb, 'all_functions_output.xlsx');
+        });
+
+        // Helper function to download file
+        function downloadFile(data, filename, type) {
+            const file = new Blob([data], { type });
+            const a = document.createElement('a');
+            const url = URL.createObjectURL(file);
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 0);
+        }
+    </script>
+</body>
+
+</html>

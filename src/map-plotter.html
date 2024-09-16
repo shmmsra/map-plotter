@@ -22,6 +22,11 @@
             display: flex;
             flex-direction: row;
             justify-content: space-between;
+            font-size: 16px;
+        }
+
+        .header h2 {
+            margin: 12px 0;
         }
 
         #map-container {
@@ -32,7 +37,6 @@
         }
 
         #controls {
-            padding: 10px;
             display: flex;
             flex-direction: row;
             align-items: center;
@@ -51,6 +55,7 @@
         }
 
         .control-btn {
+            font-size: 12px;
             padding: 10px;
             background-color: lightcoral;
             border: none;
@@ -69,13 +74,13 @@
         #officeButtons {
             display: flex;
             flex-wrap: wrap;
-            gap: 5px;
             background-color: whitesmoke;
             border-bottom: 2px solid #4a90e2;
         }
 
         .office-btn {
-            padding: 10px 15px;
+            font-size: 12px;
+            padding: 8px;
             margin: 4px;
             background-color: #4a90e2;
             color: white;
@@ -101,7 +106,7 @@
 
 <body>
     <header class="header">
-        <h2>Upload Excel File to Plot Employee and Office Locations</h2>
+        <h2>Employee Office Map</h2>
         <div id="controls">
             <button id="resetApiKey" class="control-btn">Reset API Key</button>
             <button id="processData" class="control-btn export-btn">Process Data</button>
