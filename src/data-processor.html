@@ -45,26 +45,31 @@
 
         .tool-item {
             display: flex;
-            flex-direction: row;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
             background-color: #fafafa;
             padding: 15px;
             border: 1px solid #ddd;
             border-radius: 5px;
         }
 
+        .tool-header {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
         .tool-inputs {
             display: flex;
             flex-direction: column;
             gap: 5px;
+            margin-bottom: 10px;
         }
 
         .tool-actions {
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             gap: 10px;
-            align-items: flex-end;
+            justify-content: flex-end;
         }
 
         button {
@@ -97,6 +102,11 @@
 
         input[type="checkbox"] {
             margin-right: 5px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 10px;
         }
     </style>
 </head>
@@ -145,12 +155,25 @@
                 }
             },
             {
-                name: "Function 2 - Count Rows",
-                parameters: [],
-                execute: () => {
+                name: "Function 2 - Count Rows with Checkboxes",
+                parameters: [
+                    { type: "checkbox", label: "Include Empty Rows", checked: true },
+                    { type: "checkbox", label: "Ignore Headers", checked: false }
+                ],
+                execute: (params) => {
                     // Mock function to count rows
-                    const count = excelData.length;
-                    return { result: `Total Rows: ${count}` };
+                    const includeEmptyRows = params[0];
+                    const ignoreHeaders = params[1];
+                    let count = excelData.length;
+
+                    // Reduce count based on conditions
+                    if (!includeEmptyRows) {
+                        count = excelData.filter(row => Object.values(row).some(val => val !== "")).length;
+                    }
+                    if (ignoreHeaders) {
+                        count--;  // Assuming first row is the header
+                    }
+                    return { result: `Total Rows (after conditions): ${count}` };
                 }
             }
         ];
@@ -178,6 +201,13 @@
             const toolDiv = document.createElement('div');
             toolDiv.className = 'tool-item';
 
+            // Tool title
+            const toolHeader = document.createElement('div');
+            toolHeader.className = 'tool-header';
+            toolHeader.textContent = tool.name;
+            toolDiv.appendChild(toolHeader);
+
+            // Tool inputs
             const toolInputs = document.createElement('div');
             toolInputs.className = 'tool-inputs';
             tool.parameters.forEach(param => {
@@ -185,8 +215,18 @@
                 const input = document.createElement('input');
                 input.type = param.type;
                 input.placeholder = param.label;
-                toolInputs.appendChild(label);
-                toolInputs.appendChild(input);
+
+                if (param.type === 'checkbox') {
+                    const checkboxWrapper = document.createElement('div');
+                    checkboxWrapper.className = 'checkbox-group';
+                    input.checked = param.checked;
+                    label.textContent = param.label;
+                    checkboxWrapper.appendChild(input);
+                    checkboxWrapper.appendChild(label);
+                    toolInputs.appendChild(checkboxWrapper);
+                } else {
+                    toolInputs.appendChild(input);
+                }
             });
 
             const toolActions = document.createElement('div');
@@ -201,7 +241,7 @@
             exportExcelBtn.disabled = true;
 
             executeBtn.addEventListener('click', () => {
-                const inputs = Array.from(toolInputs.querySelectorAll('input')).map(input => input.value);
+                const inputs = Array.from(toolInputs.querySelectorAll('input')).map(input => input.type === 'checkbox' ? input.checked : input.value);
                 const result = tool.execute(inputs);
                 outputData.push(result);
                 alert(result.result);
