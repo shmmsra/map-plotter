@@ -15,6 +15,7 @@
     "terminal.integrated.scrollback": 10000,
     "cSpell.words": [
         "geocoder",
+        "Geocodes",
         "latlan"
     ],
 }

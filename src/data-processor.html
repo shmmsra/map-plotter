@@ -70,6 +70,7 @@
             flex-direction: row;
             gap: 10px;
             justify-content: flex-end;
+            align-items: center;
         }
 
         button {
@@ -108,6 +109,26 @@
             display: flex;
             gap: 10px;
         }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 2s linear infinite;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
 
@@ -139,11 +160,16 @@
         // Tools/Functions
         const tools = [
             {
-                name: "Function 1 - Sum of Column",
+                title: "Generate Geocodes",
+                id: "generateGeocodes",
+                name: "Geocodes",
                 parameters: [
-                    { type: "text", label: "Column Name" }
+                    // { type: "text", label: "Column Name" }
                 ],
-                execute: (params) => {
+                execute: async (params) => {
+                    // Simulate a delay for async operation
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
                     // Mock function to sum a column
                     const column = params[0];
                     let sum = 0;
@@ -155,12 +181,19 @@
                 }
             },
             {
-                name: "Function 2 - Count Rows with Checkboxes",
+                title: "Generate Distance and Time Matrix",
+                id: "generateDistanceMatrix",
+                name: "DistanceTimeMatrix",
                 parameters: [
-                    { type: "checkbox", label: "Include Empty Rows", checked: true },
-                    { type: "checkbox", label: "Ignore Headers", checked: false }
+                    { type: "checkbox", label: "Aerial distance", checked: true },
+                    { type: "checkbox", label: "Driving distance", checked: false },
+                    { type: "checkbox", label: "Bicycle distance", checked: false },
+                    { type: "checkbox", label: "Driving Time", checked: false },
                 ],
-                execute: (params) => {
+                execute: async (params) => {
+                    // Simulate a delay for async operation
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+
                     // Mock function to count rows
                     const includeEmptyRows = params[0];
                     const ignoreHeaders = params[1];
@@ -204,7 +237,7 @@
             // Tool title
             const toolHeader = document.createElement('div');
             toolHeader.className = 'tool-header';
-            toolHeader.textContent = tool.name;
+            toolHeader.textContent = tool.title;
             toolDiv.appendChild(toolHeader);
 
             // Tool inputs
@@ -240,17 +273,35 @@
             exportExcelBtn.textContent = 'Export Excel';
             exportExcelBtn.disabled = true;
 
-            executeBtn.addEventListener('click', () => {
+            const spinner = document.createElement('div');
+            spinner.className = 'spinner';
+
+            // Event handler for async execute function
+            executeBtn.addEventListener('click', async () => {
                 const inputs = Array.from(toolInputs.querySelectorAll('input')).map(input => input.type === 'checkbox' ? input.checked : input.value);
-                const result = tool.execute(inputs);
-                outputData.push(result);
-                alert(result.result);
-                exportJSONBtn.disabled = false;
-                exportExcelBtn.disabled = false;
-                document.getElementById('exportJSON').disabled = false;
-                document.getElementById('exportExcel').disabled = false;
+
+                // Disable execute button and show spinner
+                executeBtn.disabled = true;
+                spinner.style.display = 'inline-block';
+
+                try {
+                    const result = await tool.execute(inputs);
+                    outputData.push(result);
+                    alert(result.result);
+                } catch (error) {
+                    alert('An error occurred during execution');
+                } finally {
+                    // Hide spinner and enable execute button
+                    spinner.style.display = 'none';
+                    executeBtn.disabled = false;
+                    exportJSONBtn.disabled = false;
+                    exportExcelBtn.disabled = false;
+                    document.getElementById('exportJSON').disabled = false;
+                    document.getElementById('exportExcel').disabled = false;
+                }
             });
 
+            toolActions.appendChild(spinner);
             toolActions.appendChild(executeBtn);
             toolActions.appendChild(exportJSONBtn);
             toolActions.appendChild(exportExcelBtn);
