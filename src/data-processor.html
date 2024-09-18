@@ -217,8 +217,12 @@
 
         let excelData = null;
         const outputData = {};
+        const networkTracker = {
+            'geocode': 0,
+            'distanceMatrix': 0,
+        };
 
-        async function throttleExecution(asyncFunc, argsList, batchSize) {
+        async function throttleExecution(asyncFunc, argsList, params, batchSize) {
             const results = [];
             let index = 0;
 
@@ -228,8 +232,7 @@
 
                 // Run up to `batchSize` functions in parallel
                 for (let i = 0; i < batchSize && index < argsList.length; i++, index++) {
-                    // Assuming the asyncFunc will only take a single argument
-                    currentBatch.push(asyncFunc(argsList[index]));
+                    currentBatch.push(asyncFunc(argsList[index], params));
                 }
 
                 // Wait for all functions in the current batch to complete
@@ -263,16 +266,16 @@
                         };
                         setTimeout(() => {
                             resolve(latlanJSON);
-                        }, 1000);
+                        }, 10);
                     })
                     .catch(error => {
-                        console.warn("Failed to get location from zip code:", error);
+                        console.warn("GetGeocodes: Failed to get location from zip code:", error);
                         resolve(null);
                     });
                 return;
 
                 const geocoder = new google.maps.Geocoder();
-                geocoder.geocode({ address: zipCode.toString() }, (results, status) => {
+                geocoder.geocode({ address: zipCode }, (results, status) => {
                     try {
                         if (status === "OK" && results[0]) {
                             const location = results[0].geometry.location;
@@ -280,14 +283,15 @@
                                 zipCode: zipCode,
                                 longitude: location.lng(),
                                 latitude: location.lat(),
+                                address: results[0].formatted_address,
                             };
                             resolve(latlanJSON);
                         } else {
-                            console.warn(`Geocode failed for zip code ${zipCode}: ${status}`);
+                            console.warn(`GetGeocodes: Geocode failed for zip code ${zipCode}: ${status}`);
                             resolve(null);
                         }
                     } catch (error) {
-                        console.warn("Failed to get location from zip code:", error);
+                        console.warn("GetGeocodes: Failed to get location from zip code:", error);
                         resolve(null);
                     }
                 });
@@ -295,25 +299,44 @@
         }
 
         function GetShortestDistance(data) {
+            function helperFunction(sourceDestinationPair) {
+                return new Promise((resolve, reject) => {
+                    const { source, destination } = sourceDestinationPair;
+                    try {
+                        const start = new google.maps.LatLng(source.latitude, source.longitude);
+                        const end = new google.maps.LatLng(destination.latitude, destination.longitude);
+                        const distance = google.maps.geometry.spherical.computeDistanceBetween(start, end);
+                        resolve([{
+                            source,
+                            destination,
+                            distance,
+                        }, {
+                            source: destination,
+                            destination: source,
+                            distance,
+                        }]);
+                    } catch (error) {
+                        console.error("GetShortestDistance: Failed to get shortest distance:", error);
+                        resolve(null);
+                    }
+                });
+            }
+
             return new Promise((resolve, reject) => {
-                const { origin, destination } = data;
-                try {
-                    const start = new google.maps.LatLng(origin.latitude, origin.longitude);
-                    const end = new google.maps.LatLng(destination.latitude, destination.longitude);
-                    const distance = google.maps.geometry.spherical.computeDistanceBetween(start, end);
-                    resolve([{
-                        source: origin,
-                        destination,
-                        distance,
-                    }, {
-                        source: destination,
-                        destination: origin,
-                        distance,
-                    }]);
-                } catch (error) {
-                    console.error("Failed to get shortest distance:", error);
-                    resolve(null);
-                }
+                const { sources, destinations } = data;
+                const promises = [];
+                sources.forEach(source => {
+                    destinations.forEach(destination => {
+                        promises.push(helperFunction({ source, destination }));
+                    });
+                });
+                Promise.all(promises).then((results) => {
+                    resolve(results
+                        .flat()
+                        .filter(r => !!r)
+                        .map(r => ({ source: r.source.zipCode, destination: r.destination.zipCode, distance: r.distance }))
+                    );
+                });
             });
         }
 
@@ -323,7 +346,7 @@
                 const ends = data.destinations.map((loc) => new google.maps.LatLng(loc.latitude, loc.longitude));
                 const service = new google.maps.DistanceMatrixService();
                 const promises = [];
-                promises.push(async () => {
+                promises.push(new Promise(async (resolve, reject) => {
                     try {
                         const response = await service.getDistanceMatrix({
                             origins: starts,
@@ -331,67 +354,112 @@
                             travelMode: mode,
                             unitSystem: google.maps.UnitSystem.METRIC,
                         });
-                        return response;
+                        resolve(response);
                     } catch (error) {
+                        resolve(null);
                     }
-                    return null;
-                });
+                }));
                 Promise.all(promises).then((responses) => {
                     try {
                         const results = [];
-                        responses.rows.forEach((row, i) => {
-                            if (!row || !row.elements || !row.elements.length) {
-                                console.error("Failed to get travel details for the source.");
+                        responses.forEach((response) => {
+                            if (!response) {
+                                console.error("GetTravelDistanceAndTime: Failed to get travel details.");
                                 return;
                             }
-                            row.elements.forEach((element, j) => {
-                                if (element.status === 'OK') {
-                                    const distance = element.distance.value;
-                                    const duration = element.duration.value;
-                                    results.push({
-                                        source: data.sources[i].zipCode,
-                                        destination: data.destinations[j].zipCode,
-                                        distance, duration,
-                                    });
-                                } else {
-                                    console.error("Failed to get travel details for the destination.");
+                            response.rows.forEach((row, i) => {
+                                if (!row || !row.elements || !row.elements.length) {
+                                    console.error("GetTravelDistanceAndTime: Failed to get travel details for the source.");
+                                    return;
                                 }
+                                row.elements.forEach((element, j) => {
+                                    if (element.status === 'OK') {
+                                        const distance = element.distance.value;
+                                        const duration = element.duration.value;
+                                        results.push({
+                                            source: data.sources[i].zipCode,
+                                            destination: data.destinations[j].zipCode,
+                                            distance,
+                                            duration,
+                                        });
+                                    } else {
+                                        console.error(
+                                            "GetTravelDistanceAndTime: Failed to get travel details for the destination: source:",
+                                            data.sources[i].zipCode, ", destination:", data.destinations[j].zipCode
+                                        );
+                                    }
+                                });
                             });
                         });
                         resolve(results);
                     } catch (error) {
-                        console.error("Failed to get travel details:", error);
+                        console.error("GetTravelDistanceAndTime: Failed to get travel details:", error);
                         resolve(null);
                     }
                 })
             });
         }
 
-        function GetDistanceAndTimeMatrix(sourceDestinationMatrix) {
-            return new Promise((resolve, reject) => {
+        function GetDistanceAndTimeMatrix(sourceDestinationMatrix, params) {
+            return new Promise(async (resolve, reject) => {
                 const { sources, destinations } = sourceDestinationMatrix;
-                const promises = [];
-                sources.forEach(source => {
-                    destinations.forEach(destination => {
-                        const results = GetShortestDistance({
-                            origin: source,
-                            destination: destination,
-                        });
-                        if (!results || !results.length) {
-                            resolve(null);
-                            return;
+                const response = {};
+                for (const key of Object.keys(params)) {
+                    if (key === 'aerialDistance' && params[key]) {
+                        try {
+                            const results = await GetShortestDistance(sourceDestinationMatrix);
+                            if (!results) {
+                                resolve(null);
+                                return;
+                            }
+                            results.forEach(r => {
+                                const t = response[`${r.source}:${r.destination}`] || {
+                                    source: r.source,
+                                    destination: r.destination,
+                                };
+                                t.aerialDistance = r.distance;
+                                response[`${r.source}:${r.destination}`] = t;
+                            });
+                        } catch (error) {
+                            console.error("GetDistanceAndTimeMatrix: Failed to get aerial distance:", error);
                         }
-                        result.forEach(r => {
-                            promises.push(r);
-                        });
-                    });
+                    } else if ((key === 'drivingDistanceAndTime' || key === 'bicycleDistanceAndTime') && params[key]) {
+                        try {
+                            let mode = '';
+                            if (key === 'drivingDistanceAndTime') {
+                                mode = 'DRIVING';
+                            } else if (key === 'bicycleDistanceAndTime') {
+                                mode = 'BICYCLING';
+                            }
+                            const results = await GetTravelDistanceAndTime(sourceDestinationMatrix, mode);
+                            if (!results) {
+                                resolve(null);
+                                return;
+                            }
+                            results.forEach(r => {
+                                const t = response[`${r.source}:${r.destination}`] || {
+                                    source: r.source,
+                                    destination: r.destination,
+                                };
+                                if (key === 'drivingDistanceAndTime') {
+                                    t.drivingDistance = r.distance;
+                                    t.drivingTime = r.duration;
+                                } else if (key === 'bicycleDistanceAndTime') {
+                                    t.bicycleDistance = r.distance;
+                                    t.bicycleTime = r.duration;
+                                }
+                                response[`${r.source}:${r.destination}`] = t;
+                            });
+                        } catch (error) {
+                            console.error("GetDistanceAndTimeMatrix: Failed to get driving distance and time:", error);
+                        }
+                    }
+                }
+                const results = [];
+                Object.keys(response).forEach(key => {
+                    results.push({ key, ...response[key] });
                 });
-                Promise.all(promises).then((results) => {
-                    resolve(results
-                        .filter(res => !!res)
-                        .map(r => ({ source: r.source.zipCode, destination: r.destination.zipCode, distance: r.distance }))
-                    );
-                });
+                resolve(results);
             });
         }
 
@@ -416,7 +484,7 @@
                     });
                     zipCodes = [...new Set(zipCodes)];
 
-                    const results = (await throttleExecution(GetGeocodes, zipCodes, 2)).filter(res => !!res);
+                    const results = (await throttleExecution(GetGeocodes, zipCodes, null, 2)).filter(res => !!res);
                     return results;
                 }
             },
@@ -427,9 +495,8 @@
                 parameters: [
                     { type: "file", label: "Geocodes map", accept: '.xlsx,.json' },
                     { type: "checkbox", label: "Aerial distance", checked: true },
-                    { type: "checkbox", label: "Driving distance", checked: false },
-                    { type: "checkbox", label: "Bicycle distance", checked: false },
-                    { type: "checkbox", label: "Driving Time", checked: false },
+                    { type: "checkbox", label: "Driving distance and time", checked: false },
+                    { type: "checkbox", label: "Bicycle distance and time", checked: false },
                 ],
                 execute: (excelData, params) => {
                     return new Promise((resolve, reject) => {
@@ -450,6 +517,12 @@
                             alert('Invalid file format. Please upload a valid file');
                             return;
                         }
+
+                        const paramArgs = {
+                            'aerialDistance': params[1].value,
+                            'drivingDistanceAndTime': params[2].value,
+                            'bicycleDistanceAndTime': params[3].value,
+                        };
 
                         const reader = new FileReader();
                         reader.onload = (e) => {
@@ -488,8 +561,8 @@
                                 inputList.push({ sources: sourceLocations, destinations: destinations });
                             }
 
-                            throttleExecution(GetDistanceAndTimeMatrix, inputList, 2).then((results) => {
-                                results = results.flat(2);
+                            throttleExecution(GetDistanceAndTimeMatrix, inputList, paramArgs, 2).then((results) => {
+                                results = results.filter(r => !!r).flat(2).filter(r => !!r);
                                 resolve(results);
                             });
                         };
@@ -597,7 +670,6 @@
                 try {
                     const result = await tool.execute(excelData, inputs);
                     outputData[tool.id] = result;
-                    alert(result.result);
                 } catch (error) {
                     console.error("An error occurred during execution:", error);
                     alert('An error occurred during execution');
