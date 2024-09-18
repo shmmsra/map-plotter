@@ -485,7 +485,7 @@
                     });
                     zipCodes = [...new Set(zipCodes)];
 
-                    const results = (await throttleExecution(GetGeocodes, zipCodes, null, 2)).filter(res => !!res);
+                    const results = (await throttleExecution(GetGeocodes, zipCodes, null, 5)).filter(res => !!res);
                     return results;
                 }
             },
@@ -590,9 +590,6 @@
                     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                     excelData = XLSX.utils.sheet_to_json(firstSheet);
                     alert('File loaded successfully');
-
-                    // TODO
-                    excelData = excelData.slice(0, 50);
                 };
                 reader.readAsArrayBuffer(file);
             }
