@@ -130,6 +130,9 @@
             }
         }
     </style>
+
+    <link rel="stylesheet" href="./index.css">
+    <script src="./utils.js"></script>
 </head>
 
 <body>
@@ -154,252 +157,18 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script>
-        // Global Store
-        const LocalStorage = (function () {
-            class LocalStorage {
-                storage = {};
-
-                constructor() {
-                    const globalStr = localStorage.getItem("global");
-                    if (globalStr) {
-                        this.storage['global'] = JSON.parse(globalStr);
-                    } else {
-                        this.storage['global'] = {};
-                    }
-
-                    const zipCodeLocationMapStr = localStorage.getItem("zipCodeLocationMap");
-                    if (zipCodeLocationMapStr) {
-                        this.storage['zipCodeLocationMap'] = JSON.parse(zipCodeLocationMapStr);
-                    } else {
-                        this.storage['zipCodeLocationMap'] = {};
-                    }
-
-                    const zipCodeDistanceMatrixStr = localStorage.getItem("zipCodeDistanceMatrix");
-                    if (zipCodeDistanceMatrixStr) {
-                        this.storage['zipCodeDistanceMatrix'] = JSON.parse(zipCodeDistanceMatrixStr);
-                    } else {
-                        this.storage['zipCodeDistanceMatrix'] = {};
-                    }
-
-                    const zipCodeTimeMatrixStr = localStorage.getItem("zipCodeTimeMatrix");
-                    if (zipCodeTimeMatrixStr) {
-                        this.storage['zipCodeTimeMatrix'] = JSON.parse(zipCodeTimeMatrixStr);
-                    } else {
-                        this.storage['zipCodeTimeMatrix'] = {};
-                    }
-                }
-
-                getItems(category, key) {
-                    return this.storage[category][key];
-                }
-
-                setItems(category, key, value) {
-                    this.storage[category][key] = value;
-                }
-
-                save() {
-                    localStorage.setItem("global", JSON.stringify(this.storage['global']));
-                    localStorage.setItem("zipCodeLocationMap", JSON.stringify(this.storage['zipCodeLocationMap']));
-                    localStorage.setItem("zipCodeDistanceMatrix", JSON.stringify(this.storage['zipCodeDistanceMatrix']));
-                    localStorage.setItem("zipCodeTimeMatrix", JSON.stringify(this.storage['zipCodeTimeMatrix']));
-                }
-
-                clear() {
-                    this.storage = {};
-                    localStorage.removeItem("global");
-                    localStorage.removeItem("zipCodeLocationMap");
-                    localStorage.removeItem("zipCodeDistanceMatrix");
-                    localStorage.removeItem("zipCodeTimeMatrix");
-                }
-            };
-            return new LocalStorage();
-        })();
-
+        const {
+            LocalStorage,
+            BatchExecutor,
+            ReadFile,
+            SaveFile,
+            LoadGoogleMapsScript,
+            GetGeocodes,
+            GetShortestDistance,
+            GetTravelDistanceAndTime
+        } = window.app;
         let excelData = null;
         const outputData = {};
-        const networkTracker = {
-            'geocode': 0,
-            'distanceMatrix': 0,
-        };
-
-        async function throttleExecution(asyncFunc, argsList, params, batchSize) {
-            const results = [];
-            let index = 0;
-
-            // A helper function to execute the batch
-            async function executeBatch() {
-                const currentBatch = [];
-
-                // Run up to `batchSize` functions in parallel
-                for (let i = 0; i < batchSize && index < argsList.length; i++, index++) {
-                    currentBatch.push(asyncFunc(argsList[index], params));
-                }
-
-                // Wait for all functions in the current batch to complete
-                const batchResults = await Promise.all(currentBatch);
-                results.push(...batchResults);
-            }
-
-            // Keep running batches until all arguments are processed
-            while (index < argsList.length) {
-                await executeBatch();
-            }
-
-            return results;
-        }
-
-        function GetGeocodes(zipCode) {
-            return new Promise((resolve, reject) => {
-                if (!zipCode) {
-                    resolve(null);
-                    return;
-                }
-
-                // fetch(`https://geocode.maps.co/search?q=${zipCode}&api_key=66e6c223a4210765093320zbyc476a2`)
-                //     .then(response => response.json())
-                //     .then(data => {
-                //         const latlanJSON = {
-                //             zipCode: zipCode,
-                //             longitude: data[0].lon,
-                //             latitude: data[0].lat,
-                //             address: data[0].display_name,
-                //         };
-                //         setTimeout(() => {
-                //             resolve(latlanJSON);
-                //         }, 10);
-                //     })
-                //     .catch(error => {
-                //         console.warn("GetGeocodes: Failed to get location from zip code:", error);
-                //         resolve(null);
-                //     });
-                // return;
-
-                const geocoder = new google.maps.Geocoder();
-                geocoder.geocode({ address: zipCode }, (results, status) => {
-                    try {
-                        if (status === "OK" && results[0]) {
-                            const location = results[0].geometry.location;
-                            const latlanJSON = {
-                                zipCode: zipCode,
-                                longitude: location.lng(),
-                                latitude: location.lat(),
-                                address: results[0].formatted_address,
-                            };
-                            resolve(latlanJSON);
-                        } else {
-                            console.warn(`GetGeocodes: Geocode failed for zip code ${zipCode}: ${status}`);
-                            resolve(null);
-                        }
-                    } catch (error) {
-                        console.warn("GetGeocodes: Failed to get location from zip code:", error);
-                        resolve(null);
-                    }
-                });
-            });
-        }
-
-        function GetShortestDistance(data) {
-            function helperFunction(sourceDestinationPair) {
-                return new Promise((resolve, reject) => {
-                    const { source, destination } = sourceDestinationPair;
-                    try {
-                        const start = new google.maps.LatLng(source.latitude, source.longitude);
-                        const end = new google.maps.LatLng(destination.latitude, destination.longitude);
-                        const distance = google.maps.geometry.spherical.computeDistanceBetween(start, end);
-                        resolve([{
-                            source,
-                            destination,
-                            distance,
-                        }, {
-                            source: destination,
-                            destination: source,
-                            distance,
-                        }]);
-                    } catch (error) {
-                        console.error("GetShortestDistance: Failed to get shortest distance:", error);
-                        resolve(null);
-                    }
-                });
-            }
-
-            return new Promise((resolve, reject) => {
-                const { sources, destinations } = data;
-                const promises = [];
-                sources.forEach(source => {
-                    destinations.forEach(destination => {
-                        promises.push(helperFunction({ source, destination }));
-                    });
-                });
-                Promise.all(promises).then((results) => {
-                    resolve(results
-                        .flat()
-                        .filter(r => !!r)
-                        .map(r => ({ source: r.source.zipCode, destination: r.destination.zipCode, distance: r.distance }))
-                    );
-                });
-            });
-        }
-
-        function GetTravelDistanceAndTime(data, mode = 'DRIVING') {
-            return new Promise((resolve, reject) => {
-                const starts = data.sources.map((loc) => new google.maps.LatLng(loc.latitude, loc.longitude));
-                const ends = data.destinations.map((loc) => new google.maps.LatLng(loc.latitude, loc.longitude));
-                const service = new google.maps.DistanceMatrixService();
-                const promises = [];
-                promises.push(new Promise(async (resolve, reject) => {
-                    try {
-                        const response = await service.getDistanceMatrix({
-                            origins: starts,
-                            destinations: ends,
-                            travelMode: mode,
-                            unitSystem: google.maps.UnitSystem.METRIC,
-                        });
-                        resolve(response);
-                    } catch (error) {
-                        console.error("GetTravelDistanceAndTime: Failed to get travel details:", error);
-                        resolve(null);
-                    }
-                }));
-                Promise.all(promises).then((responses) => {
-                    try {
-                        const results = [];
-                        responses.forEach((response) => {
-                            if (!response) {
-                                console.error("GetTravelDistanceAndTime: Failed to get travel details.");
-                                return;
-                            }
-                            response.rows.forEach((row, i) => {
-                                if (!row || !row.elements || !row.elements.length) {
-                                    console.error("GetTravelDistanceAndTime: Failed to get travel details for the source.");
-                                    return;
-                                }
-                                row.elements.forEach((element, j) => {
-                                    if (element.status === 'OK') {
-                                        const distance = element.distance.value;
-                                        const duration = element.duration.value;
-                                        results.push({
-                                            source: data.sources[i].zipCode,
-                                            destination: data.destinations[j].zipCode,
-                                            distance,
-                                            duration,
-                                        });
-                                    } else {
-                                        console.error(
-                                            "GetTravelDistanceAndTime: Failed to get travel details for the destination: source:",
-                                            data.sources[i].zipCode, ", destination:", data.destinations[j].zipCode
-                                        );
-                                    }
-                                });
-                            });
-                        });
-                        resolve(results);
-                    } catch (error) {
-                        console.error("GetTravelDistanceAndTime: Failed to get travel details:", error);
-                        resolve(null);
-                    }
-                })
-            });
-        }
 
         function GetDistanceAndTimeMatrix(sourceDestinationMatrix, params) {
             return new Promise(async (resolve, reject) => {
@@ -408,7 +177,7 @@
                 for (const key of Object.keys(params)) {
                     if (key === 'aerialDistance' && params[key]) {
                         try {
-                            const results = await GetShortestDistance(sourceDestinationMatrix);
+                            const results = await GetShortestDistance(sources, destinations);
                             if (!results) {
                                 resolve(null);
                                 return;
@@ -432,7 +201,7 @@
                             } else if (key === 'bicycleDistanceAndTime') {
                                 mode = 'BICYCLING';
                             }
-                            const results = await GetTravelDistanceAndTime(sourceDestinationMatrix, mode);
+                            const results = await GetTravelDistanceAndTime(sources, destinations, mode);
                             if (!results) {
                                 resolve(null);
                                 return;
@@ -485,7 +254,7 @@
                     });
                     zipCodes = [...new Set(zipCodes)];
 
-                    const results = (await throttleExecution(GetGeocodes, zipCodes, null, 5)).filter(res => !!res);
+                    const results = (await BatchExecutor(GetGeocodes, zipCodes, null, 5)).filter(res => !!res);
                     return results;
                 }
             },
@@ -500,98 +269,64 @@
                     { type: "checkbox", label: "Bicycle distance and time", checked: false },
                 ],
                 execute: (excelData, params) => {
-                    return new Promise((resolve, reject) => {
+                    return new Promise(async (resolve, reject) => {
                         if (!params[0].value) {
                             alert('Please upload Geocodes map file');
                             return;
                         }
-
-                        let geocodeFile = null;
-                        let geocodeFileType = null;
-                        if (params[0].value.type.includes('officedocument')) {
-                            geocodeFileType = 'xlsx';
-                            geocodeFile = params[0].value;
-                        } else if (params[0].value.type.includes('json')) {
-                            geocodeFileType = 'json';
-                            geocodeFile = params[0].value;
-                        } else {
-                            alert('Invalid file format. Please upload a valid file');
-                            return;
-                        }
-
+                        const geocodeData = await ReadFile(params[0].value);
                         const paramArgs = {
                             'aerialDistance': params[1].value,
                             'drivingDistanceAndTime': params[2].value,
                             'bicycleDistanceAndTime': params[3].value,
                         };
 
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            let geocodeData = null;
-                            if (geocodeFileType === 'json') {
-                                const data = JSON.parse(e.target.result);
-                                geocodeData = data;
-                            } else {
-                                const data = new Uint8Array(e.target.result);
-                                const workbook = XLSX.read(data, { type: 'array' });
-                                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                                geocodeData = XLSX.utils.sheet_to_json(firstSheet);
-                            }
-
-                            const sources = excelData.map(row => (String(row['Home Postcode']).split(' ').join('').toUpperCase()));
-                            const destinations = [...(new Set(excelData.map(row => {
-                                const officeZipCodes = [];
-                                Object.keys(row).forEach(key => {
-                                    if (key.endsWith(' Office Postcode')) {
-                                        officeZipCodes.push(String(row[key]).split(' ').join('').toUpperCase());
-                                    }
-                                });
-                                return officeZipCodes;
-                            }).flat()))];
-
-                            const sourceLocations = sources.map(
-                                source => geocodeData.find(geo => geo.zipCode === source)
-                            ).filter(geo => !!geo);
-                            const destinationLocations = destinations.map(
-                                destination => geocodeData.find(geo => geo.zipCode === destination)
-                            ).filter(geo => !!geo);
-
-                            const inputList = [];
-                            while (sourceLocations.length) {
-                                const sources = sourceLocations.splice(0, 5);
-                                inputList.push({ sources: sources, destinations: destinationLocations });
-                            }
-
-                            throttleExecution(GetDistanceAndTimeMatrix, inputList, paramArgs, 2).then((results) => {
-                                results = results.filter(r => !!r).flat(2).filter(r => !!r);
-                                resolve(results);
+                        const sources = excelData.map(row => (String(row['Home Postcode']).split(' ').join('').toUpperCase()));
+                        const destinations = [...(new Set(excelData.map(row => {
+                            const officeZipCodes = [];
+                            Object.keys(row).forEach(key => {
+                                if (key.endsWith(' Office Postcode')) {
+                                    officeZipCodes.push(String(row[key]).split(' ').join('').toUpperCase());
+                                }
                             });
-                        };
+                            return officeZipCodes;
+                        }).flat()))];
 
-                        if (geocodeFileType === 'json') {
-                            reader.readAsText(geocodeFile);
-                        } else {
-                            reader.readAsArrayBuffer(geocodeFile);
+                        const sourceLocations = sources.map(
+                            source => geocodeData.find(geo => geo.zipCode === source)
+                        ).filter(geo => !!geo);
+                        const destinationLocations = destinations.map(
+                            destination => geocodeData.find(geo => geo.zipCode === destination)
+                        ).filter(geo => !!geo);
+
+                        const inputList = [];
+                        while (sourceLocations.length) {
+                            const sources = sourceLocations.splice(0, 5);
+                            inputList.push({ sources: sources, destinations: destinationLocations });
                         }
+
+                        BatchExecutor(GetDistanceAndTimeMatrix, inputList, paramArgs, 2).then((results) => {
+                            results = results.filter(r => !!r).flat(2).filter(r => !!r);
+                            resolve(results);
+                        });
                     });
                 }
             }
         ];
 
         // Event handler for file upload
-        document.getElementById('fileInput').addEventListener('change', (e) => {
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (file) {
                 document.getElementById('fileName').textContent = `File: ${file.name}`;
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                    excelData = XLSX.utils.sheet_to_json(firstSheet);
+                try {
+                    excelData = await ReadFile(file);
                     alert('File loaded successfully');
-                };
-                reader.readAsArrayBuffer(file);
+                } catch (error) {
+                    console.error("An error occurred while reading the file:", error);
+                    alert('An error occurred while reading the file');
+                    excelData = null;
+                }
             }
         });
 
@@ -692,100 +427,35 @@
             toolsList.appendChild(toolDiv);
 
             exportJSONBtn.addEventListener('click', () => {
-                const json = JSON.stringify(outputData[tool.id], null, 2);
-                downloadFile(json, `function_${tool.id}_output.json`, 'application/json');
+                const data = outputData[tool.id];
+                SaveFile(data, `function_${tool.id}_output.json`, 'json');
             });
 
             exportExcelBtn.addEventListener('click', () => {
-                const ws = XLSX.utils.json_to_sheet(outputData[tool.id]);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, tool.id);
-                XLSX.writeFile(wb, `function_${tool.id}_output.xlsx`);
+                const data = {};
+                data[tool.id] = outputData[tool.id];
+                SaveFile(data, `function_${tool.id}_output.xlsx`, 'xlsx');
             });
         });
 
         // Export all JSON
-        document.getElementById('exportJSON').addEventListener('click', () => {
-            const json = JSON.stringify(outputData, null, 2);
-            downloadFile(json, 'all_functions_output.json', 'application/json');
+        document.getElementById('exportJSON').addEventListener('click', async () => {
+            await SaveFile(outputData, 'all_functions_output.json', 'json');
         });
 
         // Export all Excel
-        document.getElementById('exportExcel').addEventListener('click', () => {
-            const wb = XLSX.utils.book_new();
-            Object.keys(outputData).forEach(key => {
-                const ws = XLSX.utils.json_to_sheet(outputData[key]);
-                XLSX.utils.book_append_sheet(wb, ws, key);
-            });
-            XLSX.writeFile(wb, 'all_functions_output.xlsx');
+        document.getElementById('exportExcel').addEventListener('click', async () => {
+            await SaveFile(outputData, 'all_functions_output.xlsx', 'xlsx');
         });
-
-        // Helper function to download file
-        function downloadFile(data, filename, type) {
-            const file = new Blob([data], { type });
-            const a = document.createElement('a');
-            const url = URL.createObjectURL(file);
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
-            }, 0);
-        }
-
-        /**
-         * Retrieves the Google Maps API Key from LocalStorage or prompts the user.
-         * @returns {Promise<string>} The API Key.
-         */
-        async function getApiKey() {
-            let apiKey = LocalStorage.getItems('global', 'GoogleMapsAPIKey');
-            if (!apiKey) {
-                apiKey = prompt("Please enter your Google Maps API Key:");
-                if (!apiKey) {
-                    alert("API Key is required. Please try again.");
-                    throw new Error("INVALID_API_KEY");
-                }
-                LocalStorage.setItems('global', 'GoogleMapsAPIKey', apiKey);
-            }
-            return apiKey;
-        }
-
-        /**
-         * Dynamically loads the Google Maps script.
-         * @param {string} apiKey - The Google Maps API Key.
-         * @returns {Promise<void>}
-         */
-        function loadGoogleMapsScript(apiKey) {
-            return new Promise((resolve, reject) => {
-                if (window.google && window.google.maps) {
-                    resolve();
-                    return;
-                }
-                const script = document.createElement("script");
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap&libraries=geometry`;
-                script.async = true;
-                script.defer = true;
-                script.onerror = () => reject(new Error("Failed to load Google Maps script."));
-                window.initMap = () => {
-                    resolve();
-                };
-                document.head.appendChild(script);
-            });
-        }
 
         async function initialize() {
             try {
-                const apiKey = await getApiKey();
-                LocalStorage.save();
-                await loadGoogleMapsScript(apiKey);
+                await LoadGoogleMapsScript();
             } catch (error) {
                 console.error("Failed to initialize:", error);
             }
         }
-
-        initialize();
+        document.addEventListener("DOMContentLoaded", initialize);
     </script>
 </body>
 

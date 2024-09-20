@@ -78,28 +78,14 @@
             border-bottom: 2px solid #4a90e2;
         }
 
-        .office-btn {
-            font-size: 12px;
-            padding: 8px;
-            margin: 4px;
-            background-color: #4a90e2;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-
-        .office-btn:hover {
-            background-color: #357ab8;
-        }
-
         #map {
             flex-grow: 1;
             width: 100%;
         }
     </style>
 
+    <link rel="stylesheet" href="./index.css">
+    <script src="./utils.js"></script>
     <!-- XLSX Library -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.17.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -113,12 +99,13 @@
             </div>
         </div>
         <div id="controls">
+            <div class="spinner" style="display: none;"></div>
             <button id="resetApiKey" class="control-btn">Reset API Key</button>
             <button id="processData" class="control-btn export-btn">Process Data</button>
             <button id="exportData" class="control-btn export-btn">Export Data</button>
             <div id="fileSelector">
                 <div class="file-input">
-                    <label for="zipCodeFileInput" class="btn">ZipCode Data</label>
+                    <label for="zipCodeFileInput" class="btn">GeoCode Data</label>
                     <input type="file" id="zipCodeFileInput" accept=".xlsx,.json" />
                 </div>
                 <div class="file-input">
@@ -129,88 +116,20 @@
         </div>
     </header>
     <div id="officeButtons"></div>
-    <div id="map-container" style="display: none;">
+    <div id="map-container">
         <div id="map"></div>
     </div>
 
     <script>
-        // Global Store
-        const LocalStorage = (function () {
-            class LocalStorage {
-                storage = {};
-
-                constructor() {
-                    const globalStr = localStorage.getItem("global");
-                    if (globalStr) {
-                        this.storage['global'] = JSON.parse(globalStr);
-                    } else {
-                        this.storage['global'] = {};
-                    }
-
-                    const zipCodeLocationMapStr = localStorage.getItem("zipCodeLocationMap");
-                    if (zipCodeLocationMapStr) {
-                        this.storage['zipCodeLocationMap'] = JSON.parse(zipCodeLocationMapStr);
-                    } else {
-                        this.storage['zipCodeLocationMap'] = {};
-                    }
-
-                    const zipCodeDistanceMatrixStr = localStorage.getItem("zipCodeDistanceMatrix");
-                    if (zipCodeDistanceMatrixStr) {
-                        this.storage['zipCodeDistanceMatrix'] = JSON.parse(zipCodeDistanceMatrixStr);
-                    } else {
-                        this.storage['zipCodeDistanceMatrix'] = {};
-                    }
-
-                    const zipCodeTimeMatrixStr = localStorage.getItem("zipCodeTimeMatrix");
-                    if (zipCodeTimeMatrixStr) {
-                        this.storage['zipCodeTimeMatrix'] = JSON.parse(zipCodeTimeMatrixStr);
-                    } else {
-                        this.storage['zipCodeTimeMatrix'] = {};
-                    }
-                }
-
-                getItems(category, key) {
-                    return this.storage[category][key];
-                }
-
-                setItems(category, key, value) {
-                    this.storage[category][key] = value;
-                }
-
-                save() {
-                    localStorage.setItem("global", JSON.stringify(this.storage['global']));
-                    localStorage.setItem("zipCodeLocationMap", JSON.stringify(this.storage['zipCodeLocationMap']));
-                    localStorage.setItem("zipCodeDistanceMatrix", JSON.stringify(this.storage['zipCodeDistanceMatrix']));
-                    localStorage.setItem("zipCodeTimeMatrix", JSON.stringify(this.storage['zipCodeTimeMatrix']));
-                }
-
-                clear() {
-                    this.storage = {};
-                    localStorage.removeItem("global");
-                    localStorage.removeItem("zipCodeLocationMap");
-                    localStorage.removeItem("zipCodeDistanceMatrix");
-                    localStorage.removeItem("zipCodeTimeMatrix");
-                }
-            };
-            return new LocalStorage();
-        })();
+        const { LocalStorage, ReadFile, SaveFile, LoadGoogleMapsScript } = window.app;
 
         // Global Variables
         let googleMap;
-        let directionsService;
-        let directionsRenderer;
-        let trafficLayer;
         let processedData;
-        let zipCodeDistanceMatrix;
         let zipCodeLocationMap;
         let zipCodeDistanceAndTimeMatrix;
         let radiusMilesThreshold = 40 * 1609.34; // Default radius in meters
         let travelTimeThreshold = 60 * 60; // Default travel time in seconds
-
-        // Cache DOM Elements
-        const mapContainer = document.getElementById('map-container');
-        const zipCodeFileInput = document.getElementById('zipCodeFileInput');
-        const officeButtonsContainer = document.getElementById('officeButtons');
 
         // Event listener for reset button
         document.getElementById('resetApiKey').addEventListener('click', () => {
@@ -219,24 +138,12 @@
         });
 
         // Event listener for process button
-        document.getElementById('processData').addEventListener('click', () => {
-            handleFileUpload();
+        document.getElementById('processData').addEventListener('click', async () => {
+            const spinner = document.querySelector('#controls .spinner');
+            spinner.style.display = 'inline-block';
+            await handleFileUpload();
+            spinner.style.display = 'none';
         });
-
-        // Function to export JSON data to Excel
-        function exportJsonToExcel(jsonData, fileName = "data.xlsx") {
-            // 1. Create a new workbook
-            const wb = XLSX.utils.book_new();
-
-            // 2. Convert JSON data to a worksheet
-            const ws = XLSX.utils.json_to_sheet(jsonData);
-
-            // 3. Append the worksheet to the workbook
-            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-
-            // 4. Write the workbook to a file
-            XLSX.writeFile(wb, fileName);
-        }
 
         // Event listener for export button
         document.getElementById('exportData').addEventListener('click', () => {
@@ -261,81 +168,8 @@
                 });
             }
             const employeesData = cloneEmployeesData(processedData.employeeList);
-            exportJsonToExcel(employeesData, "EmployeeData.xlsx");
+            SaveFile(employeesData, 'EmployeeData.json', 'json');
         });
-
-        /**
-         * Retrieves the Google Maps API Key from LocalStorage or prompts the user.
-         * @returns {Promise<string>} The API Key.
-         */
-        async function getApiKey() {
-            let apiKey = LocalStorage.getItems('global', 'GoogleMapsAPIKey');
-            if (!apiKey) {
-                apiKey = prompt("Please enter your Google Maps API Key:");
-                if (!apiKey) {
-                    alert("API Key is required. Please try again.");
-                    throw new Error("INVALID_API_KEY");
-                }
-                LocalStorage.setItems('global', 'GoogleMapsAPIKey', apiKey);
-            }
-            return apiKey;
-        }
-
-        /**
-         * Initializes the UI by fetching the API Key and loading the map.
-         */
-        async function showUI() {
-            try {
-                const apiKey = await getApiKey();
-                LocalStorage.save();
-                mapContainer.style.display = "flex";
-                await loadGoogleMapsScript(apiKey);
-            } catch (error) {
-                console.error("Failed to load the UI:", error);
-            }
-        }
-
-        /**
-         * Dynamically loads the Google Maps script.
-         * @param {string} apiKey - The Google Maps API Key.
-         * @returns {Promise<void>}
-         */
-        function loadGoogleMapsScript(apiKey) {
-            return new Promise((resolve, reject) => {
-                if (window.google && window.google.maps) {
-                    resolve();
-                    return;
-                }
-                const script = document.createElement("script");
-                script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap&libraries=geometry`;
-                script.async = true;
-                script.defer = true;
-                script.onerror = () => reject(new Error("Failed to load Google Maps script."));
-                window.initMap = () => {
-                    initializeMap();
-                    resolve();
-                };
-                document.head.appendChild(script);
-            });
-        }
-
-        /**
-         * Initializes the Google Map and related services.
-         */
-        function initializeMap() {
-            googleMap = new google.maps.Map(document.getElementById("map"), {
-                center: { lat: 20.5937, lng: 78.9629 }, // Default center (India)
-                zoom: 5,
-                mapTypeId: "terrain",
-            });
-
-            directionsService = new google.maps.DirectionsService();
-            directionsRenderer = new google.maps.DirectionsRenderer();
-            directionsRenderer.setMap(googleMap);
-
-            trafficLayer = new google.maps.TrafficLayer();
-            trafficLayer.setMap(googleMap);
-        }
 
         /**
          * Handles the file upload event.
@@ -343,20 +177,24 @@
          */
         async function handleFileUpload() {
             try {
-                const data = await readFile('employeeFileInput');
+                const officeButtonsContainer = document.getElementById('officeButtons');
+                officeButtonsContainer.innerHTML = '';
+                initializeGoogleMaps();
+
+                const data = await ReadFile(document.getElementById('employeeFileInput').files[0]);
                 if (!data || !data.length) {
                     alert("No data found in the uploaded file.");
                     throw new Error("No data found in the uploaded file.");
                 }
 
-                zipCodeLocationMap = await readFile('zipCodeFileInput');
+                zipCodeLocationMap = await ReadFile(document.getElementById('zipCodeFileInput').files[0]);
                 zipCodeLocationMap.forEach((d) => {
                     d.zipCode = String(d.zipCode).split(' ').join('').toUpperCase();
                     d.latitude = parseFloat(d.latitude);
                     d.longitude = parseFloat(d.longitude);
                 });
 
-                zipCodeDistanceAndTimeMatrix = await readFile('mapsFileInput');
+                zipCodeDistanceAndTimeMatrix = await ReadFile(document.getElementById('mapsFileInput').files[0]);
                 zipCodeDistanceAndTimeMatrix.forEach((d) => {
                     d.key = String(d.key);
                     d.source = String(d.source).split(' ').join('').toUpperCase();
@@ -385,83 +223,6 @@
         }
 
         /**
-         * Reads the Excel file and returns the workbook data.
-         * @param {File} file - The uploaded Excel file.
-         * @returns {Promise<Array<Object>>} The merged data from all sheets.
-         */
-        function readExcelFile() {
-            return new Promise((resolve, reject) => {
-                const input = document.getElementById('zipCodeFileInput');
-                const file = input.files[0];
-                if (!file) {
-                    reject(new Error("No file selected."));
-                };
-
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: "array" });
-                        const mergedData = [];
-                        workbook.SheetNames.forEach((sheetName) => {
-                            const sheet = workbook.Sheets[sheetName];
-                            const jsonData = XLSX.utils.sheet_to_json(sheet);
-                            mergedData.push(...jsonData);
-                        });
-                        resolve(mergedData);
-                    } catch (error) {
-                        reject(error);
-                    }
-                };
-                reader.onerror = () => reject(new Error("Failed to read the file."));
-                reader.readAsArrayBuffer(file);
-            });
-        }
-
-        function readFile(inputId) {
-            return new Promise((resolve, reject) => {
-                const input = document.getElementById(inputId);
-                const file = input.files[0];
-                const reader = new FileReader();
-                let fileType = '';
-
-                // When the file is successfully read
-                reader.onload = function (event) {
-                    try {
-                        if (fileType === 'excel') {
-                            const data = new Uint8Array(event.target.result);
-                            const workbook = XLSX.read(data, { type: 'array' });
-                            const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-                            resolve(jsonData);
-                        } else if (fileType === 'json') {
-                            const json = JSON.parse(event.target.result);
-                            resolve(json);
-                        }
-                    } catch (e) {
-                        alert('Error parsing JSON file.');
-                        reject(error);
-                    }
-                };
-
-                if (!file) {
-                    alert('Please select a Excel or JSON file first.');
-                    return;
-                } else if (file.type.includes('officedocument')) {
-                    // Read the file as a bytes array
-                    reader.readAsArrayBuffer(file);
-                    fileType = 'excel';
-                } else if (file.type.includes('json')) {
-                    // Read the file as a text string
-                    reader.readAsText(file);
-                    fileType = 'json';
-                } else {
-                    alert('Please select a Excel or JSON file first.');
-                    return;
-                }
-            });
-        }
-
-        /**
          * Processes the workbook data to extract employee and office information.
          * @param {Array<Object>} data - The merged data from all sheets.
          * @returns {Promise<{ employeeList: Array<Object>, officeList: Array<Object> }>} The processed data.
@@ -469,26 +230,6 @@
         async function processWorkbook(data) {
             const employeeList = [];
             const officeList = [];
-
-            const officeIds = [
-                'Birmingham Office Postcode',
-                'Caithness Office Postcode',
-                'Cardiff Office Postcode',
-                'Cheadle Office Postcode',
-                'Crawley Office Postcode',
-                'Exeter Office Postcode',
-                'Lancing Office Postcode',
-                'Leeds Office Postcode',
-                'Liverpool Office Postcode',
-                'London Office Postcode',
-                'Reading Office Postcode',
-                'Worthing Office Postcode',
-                'Milwaukee Office Postcode',
-                'Minnesota Office Postcode',
-                'New York Office Postcode',
-                'RPK Office Postcode',
-                'Conshohocken Office Postcode',
-            ];
 
             for (const row of data) {
                 try {
@@ -510,6 +251,8 @@
                     };
                     employeeList.push(employee);
 
+                    const officeIds = Object.keys(row).filter((key) => key.endsWith(' Office Postcode'));
+
                     // Process each office postcode for the current employee
                     for (const officeId of officeIds) {
                         const officeZip = row[officeId];
@@ -523,6 +266,7 @@
 
                                 office = {
                                     id: officeId,
+                                    name: officeId.replace(' Office Postcode', ''),
                                     zip_code: String(officeZip).split(' ').join('').toUpperCase(),
                                     latitude: officeLocation && officeLocation.latitude,
                                     longitude: officeLocation && officeLocation.longitude,
@@ -600,7 +344,7 @@
                         resolve(Infinity);
                     }
 
-                    const { aerialDistance, drivingDistance, drivingTime, bicycleDistance, bicycleTime } = data;
+                    const { aerialDistance } = data;
                     resolve(aerialDistance);
                 } catch (error) {
                     console.error("Failed to get shortest distance:", error);
@@ -614,10 +358,7 @@
          * @param {{ officeList: Array<Object> }} data - The processed data.
          */
         async function plotOfficeLocations(officeList) {
-            // Clear previous markers and buttons if any
-            officeButtonsContainer.innerHTML = '';
-            // Optionally, you can keep track of markers to clear them later
-
+            const officeButtonsContainer = document.getElementById('officeButtons');
             await Promise.all(officeList.map(async (office) => {
                 try {
                     if (!office.latitude || !office.longitude) {
@@ -628,9 +369,12 @@
 
                     // Create a button for the office
                     const officeButton = document.createElement("button");
-                    officeButton.className = "office-btn";
-                    officeButton.textContent = office.id.replace(' Office Postcode', '');
-                    officeButton.addEventListener("click", () => focusOnOffice(officeLatLng));
+                    officeButton.className = "filter-button-blue";
+                    officeButton.textContent = office.name;
+                    officeButton.addEventListener("click", () => {
+                        googleMap.setCenter(officeLatLng);
+                        googleMap.setZoom(8); // Adjust zoom level as needed
+                    });
                     officeButtonsContainer.appendChild(officeButton);
 
                     // Add an office marker
@@ -641,7 +385,7 @@
                             url: "http://maps.google.com/mapfiles/kml/pushpin/purple-pushpin.png", // Custom Office Icon
                             scaledSize: new google.maps.Size(30, 30),
                         },
-                        title: `${office.id.replace(' Office Postcode', '')}: ${office.nearByEmployees.length} employees`,
+                        title: `${office.name}: ${office.nearByEmployees.length} employees`,
                     });
 
                     let distances = await Promise.all(office.nearByEmployees.map((employee) => {
@@ -709,28 +453,50 @@
                     return false;
                 }
                 const { aerialDistance, drivingDistance, drivingTime, bicycleDistance, bicycleTime } = data;
-                const distanceInRange = (radiusMilesThreshold > 0) ? (drivingDistance && drivingDistance < radiusMilesThreshold) : true;
-                const timeInRange = (travelTimeThreshold > 0) ? (drivingTime && drivingTime < travelTimeThreshold) : true;
+                const distanceInRange = (radiusMilesThreshold > 0) ? (drivingDistance < radiusMilesThreshold) : true;
+                const timeInRange = (travelTimeThreshold > 0) ? (drivingTime < travelTimeThreshold) : true;
                 if (distanceInRange && timeInRange) {
-                    return true;
+                    return data;
                 }
+                return null;
             } catch (error) {
                 console.warn("Failed to evaluate isEmployeeOfficeGoodMatch:", error);
             }
-            return false;
+            return null;
+        }
+
+        function initializeGoogleMaps() {
+            if (!google) {
+                console.error("Google Maps API not found.");
+                return;
+            }
+            if (googleMap) {
+                delete googleMap;
+            }
+            googleMap = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: 20.5937, lng: 78.9629 }, // Default center (India)
+                zoom: 5,
+                mapTypeId: "terrain",
+            });
+
+            const directionsRenderer = new google.maps.DirectionsRenderer();
+            directionsRenderer.setMap(googleMap);
+            const trafficLayer = new google.maps.TrafficLayer();
+            trafficLayer.setMap(googleMap);
         }
 
         /**
-         * Focuses the map on a specific office location.
-         * @param {{ lat: number, lng: number }} officeLatLng - The office location.
+         * Initializes the UI by fetching the API Key and loading the map.
          */
-        function focusOnOffice(officeLatLng) {
-            googleMap.setCenter(officeLatLng);
-            googleMap.setZoom(10); // Adjust zoom level as needed
+        async function initialize() {
+            try {
+                await LoadGoogleMapsScript();
+                initializeGoogleMaps();
+            } catch (error) {
+                console.error("Failed to load the UI:", error);
+            }
         }
-
-        // Event Listeners
-        document.addEventListener("DOMContentLoaded", showUI);
+        document.addEventListener("DOMContentLoaded", initialize);
     </script>
 </body>
 
