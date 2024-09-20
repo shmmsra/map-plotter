@@ -425,19 +425,21 @@
                     }
 
                     const employeeLatLng = { lat: parseFloat(employee.latitude), lng: parseFloat(employee.longitude) };
-                    const employeeMarker = new google.maps.Marker({
-                        position: employeeLatLng,
-                        map: googleMap,
-                        icon: {
-                            path: google.maps.SymbolPath.CIRCLE,
-                            scale: 5,
-                            fillColor: 'red',
-                            fillOpacity: 1,
-                            strokeWeight: 1,
-                            strokeColor: "white",
-                        },
-                        title: `Employee ID: ${employee.id}`,
-                    });
+                    setTimeout(() => {
+                        new google.maps.Marker({
+                            position: employeeLatLng,
+                            map: googleMap,
+                            icon: {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 5,
+                                fillColor: 'red',
+                                fillOpacity: 1,
+                                strokeWeight: 1,
+                                strokeColor: "white",
+                            },
+                            title: `Employee ID: ${employee.id}`,
+                        });
+                    }, 0);
                 });
             } catch (error) {
                 console.error("plotEmployeeLocations: Failed to plot employee locations:", error);
