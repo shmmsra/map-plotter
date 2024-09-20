@@ -419,13 +419,14 @@
          */
         async function plotEmployeeLocations(employeeList) {
             try {
-                employeeList.forEach(employee => {
-                    if (employee.nearByOffices && employee.nearByOffices.length > 0) {
-                        return;
-                    }
+                const promises = employeeList.forEach(employee => {
+                    return new Promise((resolve, reject) => {
+                        if (employee.nearByOffices && employee.nearByOffices.length > 0) {
+                            resolve();
+                            return;
+                        }
 
-                    const employeeLatLng = { lat: parseFloat(employee.latitude), lng: parseFloat(employee.longitude) };
-                    setTimeout(() => {
+                        const employeeLatLng = { lat: parseFloat(employee.latitude), lng: parseFloat(employee.longitude) };
                         new google.maps.Marker({
                             position: employeeLatLng,
                             map: googleMap,
@@ -439,8 +440,10 @@
                             },
                             title: `Employee ID: ${employee.id}`,
                         });
-                    }, 0);
+                        resolve();
+                    });
                 });
+                await Promise.all(promises);
             } catch (error) {
                 console.error("plotEmployeeLocations: Failed to plot employee locations:", error);
             }
