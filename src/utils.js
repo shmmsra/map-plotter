@@ -226,25 +226,6 @@
                 return;
             }
 
-            // fetch(`https://geocode.maps.co/search?q=${zipCode}&api_key=66e6c223a4210765093320zbyc476a2`)
-            //     .then(response => response.json())
-            //     .then(data => {
-            //         const latlanJSON = {
-            //             zipCode: zipCode,
-            //             longitude: data[0].lon,
-            //             latitude: data[0].lat,
-            //             address: data[0].display_name,
-            //         };
-            //         setTimeout(() => {
-            //             resolve(latlanJSON);
-            //         }, 10);
-            //     })
-            //     .catch(error => {
-            //         console.warn("GetGeocodes: Failed to get location from zip code:", error);
-            //         resolve(null);
-            //     });
-            // return;
-
             const geocoder = new google.maps.Geocoder();
             geocoder.geocode({ address: zipCode }, (results, status) => {
                 try {
