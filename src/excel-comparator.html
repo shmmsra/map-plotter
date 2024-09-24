@@ -62,11 +62,7 @@
             try {
                 const condition = headers.reduce((acc, header, index) => {
                     const value = row[index];
-                    if (typeof value === 'string') {
-                        return acc.replace(new RegExp(header, 'g'), `'${value}'`);
-                    } else {
-                        return acc.replace(new RegExp(header, 'g'), value);
-                    }
+                    return acc.replace(new RegExp(header, 'g'), value);
                 }, filterExpr);
                 if (!condition) {
                     return true; // Include row if no filter condition
