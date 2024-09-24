@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel File Comparison</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        input, button {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+        }
+        textarea {
+            width: 100%;
+            height: 60px;
+            margin-top: 10px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Compare and Filter Excel Files</h2>
+        <input type="file" id="fileA" accept=".xlsx" />
+        <input type="file" id="fileB" accept=".xlsx" /><br>
+        <textarea id="filterExpression" placeholder="Enter filter condition, e.g., (Location = 'New York' OR Location = 'New Jersey') AND Level = 3"></textarea><br>
+        <button onclick="processFiles()">Compare and Filter</button>
+        <button onclick="downloadExcel()">Download Filtered Results</button>
+    </div>
+
+    <script>
+        let fileAData, fileBData, filteredData = [];
+
+        function readExcelFile(file, callback) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+                callback(jsonData);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function compareRows(rowA, rowB) {
+            return JSON.stringify(rowA) !== JSON.stringify(rowB);
+        }
+
+        function applyFilter(row, headers, filterExpr) {
+            try {
+                const condition = headers.reduce((acc, header, index) => {
+                    const value = row[index];
+                    if (typeof value === 'string') {
+                        return acc.replace(new RegExp(header, 'g'), `'${value}'`);
+                    } else {
+                        return acc.replace(new RegExp(header, 'g'), value);
+                    }
+                }, filterExpr);
+                if (!condition) {
+                    return true; // Include row if no filter condition
+                }
+                return eval(condition);
+            } catch (err) {
+                console.warn('Error evaluating condition:', err);
+                return true; // Include row in case of error
+            }
+        }
+
+        function processFiles() {
+            const fileA = document.getElementById('fileA').files[0];
+            const fileB = document.getElementById('fileB').files[0];
+            const filterExpression = document.getElementById('filterExpression').value;
+
+            if (!fileA || !fileB) {
+                alert('Please upload both Excel files.');
+                return;
+            }
+
+            readExcelFile(fileA, function(dataA) {
+                readExcelFile(fileB, function(dataB) {
+                    const headers = dataA[0]; // Assuming both have the same headers
+                    filteredData = [headers];
+
+                    // Compare rows in B with rows in A
+                    for (let i = 1; i < dataB.length; i++) {
+                        const rowB = dataB[i];
+                        const rowA = dataA.find(row => row[0] === rowB[0]); // Assuming the first column is unique (ID)
+                        
+                        // If rowA doesn't exist or is different, it's new/changed
+                        if (!rowA || compareRows(rowA, rowB)) {
+                            if (applyFilter(rowB, headers, filterExpression)) {
+                                filteredData.push(rowB);
+                            }
+                        }
+                    }
+
+                    alert('Comparison and filtering completed!');
+                });
+            });
+        }
+
+        function downloadExcel() {
+            if (filteredData.length === 0) {
+                alert('No data to download. Please process the files first.');
+                return;
+            }
+
+            const ws = XLSX.utils.aoa_to_sheet(filteredData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'FilteredData');
+
+            XLSX.writeFile(wb, 'Filtered_Output.xlsx');
+        }
+    </script>
+</body>
+</html>
